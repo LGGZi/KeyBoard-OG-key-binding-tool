@@ -54,6 +54,13 @@ namespace KeyboardOG
         /// </summary>
         private readonly bool[] _keyDirty = new bool[DeviceLimits.KeyCount];
 
+        /// <summary>
+        /// 键盘上"当前实际是什么"（每个按键的映射列表快照）。
+        /// 用途：写之前和本地列表做差 —— 没改动就不发指令、纯追加就用 APPEND、
+        /// 只改个别槽就只发那几条。null 表示"还没同步过，不知道键盘上是什么"。
+        /// </summary>
+        private readonly Binding[][] _deviceState = new Binding[DeviceLimits.KeyCount][];
+
         /// <summary>"清空全部按键映射"要点两次才生效，这个记第一次点过了。</summary>
         private bool _clearAllArmed;
 
@@ -92,6 +99,9 @@ namespace KeyboardOG
             //读设置文件；不存在就用默认值并自动生成（默认 = 现在能正常工作的那套）
             _settings = AppSettings.Load();
 
+            //界面语言：先按设置定好，控件文本在 OnLoad 末尾统一换一遍
+            L.Current = (_settings.Language == 1) ? UiLanguage.English : UiLanguage.Chinese;
+
             var ui = new ControlSyncContext(this);
             _log = new CommandLogStore(ui);
             _transport = new HidTransport(_log, ui);
@@ -122,7 +132,7 @@ namespace KeyboardOG
             WireEvents();
 
             SelectKey(0);
-            SetStatus("就绪。请先点“刷新设备”，选中带 ★ 的指令接口，再点“连接”。");
+            SetStatus("就绪。请先点“刷新设备”，选中你的键盘，再点“连接”。");
 
             RestoreHint();      //提示行 = 磁轴参数说明（校准时会被临时替换）
 
@@ -130,8 +140,14 @@ namespace KeyboardOG
                 "KeyboardOG 改键工具已启动。协议：Report ID 0x04，8 字节指令。",
                 null, LogState.None);
 
+            // 界面建好了：按设置把语言套上去（静态文本一次性全换）
+            ApplyLanguage();
+
             // 等界面完全显示后再去枚举，避免关掉窗体时还在枚举。
             BeginInvoke(new Action(async () => await RefreshDevicesAsync()));
+
+            // 启动阶段多补几次整窗重画，兜住"第一遍 WM_PAINT 被系统丢掉"的情况
+            Shown += (s2, e2) => ScheduleStartupRepaint();
         }
 
         /// <summary>
@@ -226,6 +242,8 @@ namespace KeyboardOG
 
             lvBindings.SelectedIndexChanged += (s, e) => UpdateSlotButtons();
 
+            _deviceChangeTimer.Tick += OnDeviceChangeTimerTick;
+
             FormClosing += OnFormClosing;
         }
 
@@ -254,9 +272,27 @@ namespace KeyboardOG
         /// </summary>
         private void ShowSettings()
         {
+            int langBefore = _settings.Language;
+
             using (var dlg = new SettingsForm(_settings))
             {
-                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                //对话框里一换语言就立刻生效（两个窗口一起换），不用等点确定
+                dlg.LanguageChanged += lang =>
+                {
+                    _settings.Language = lang;
+                    ApplyLanguage();
+                };
+
+                if (dlg.ShowDialog(this) != DialogResult.OK)
+                {
+                    //取消：语言也一起还原
+                    if (_settings.Language != langBefore)
+                    {
+                        _settings.Language = langBefore;
+                        ApplyLanguage();
+                    }
+                    return;
+                }
 
                 _settings = dlg.Result.Clone();
                 try
@@ -265,11 +301,14 @@ namespace KeyboardOG
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, "设置文件保存失败：\r\n" + ex.Message + "\r\n\r\n本次设置只在这次运行里有效。",
-                        "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, L.T("设置文件保存失败：\r\n") + ex.Message + L.T("\r\n\r\n本次设置只在这次运行里有效。"),
+                        L.T("警告"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
 
-                SetStatus("设置已生效并保存：" + _settings.ToString() + "    （" + AppSettings.FilePath + "）");
+                //摘要本身是按当前语言渲染的，所以整句不能再查表翻（拼出来的句子查不到），
+            //用 alreadyLocalized 直接显示。
+            SetStatus(L.T("设置已生效并保存：") + _settings.ToString()
+                      + "    （" + AppSettings.FilePath + "）", alreadyLocalized: true);
                 _log.Add(LogKind.Info, "设置", _settings.ToString() + " / " + AppSettings.FilePath, null, LogState.Done);
             }
         }
@@ -282,6 +321,16 @@ namespace KeyboardOG
         /// 这就是之前"上位机指令丢一半"的根源。
         /// 返回值表示是否收到并对上了 FIN。
         /// </summary>
+        /// <summary>
+        /// 拼在状态栏末尾的提示：中文之间不需要空格，英文需要，所以统一在这里补。
+        /// </summary>
+        private static string Hint(string zh)
+        {
+            if (string.IsNullOrEmpty(zh)) return string.Empty;
+            string text = L.T(zh);
+            return (L.IsEn ? " " : string.Empty) + text;
+        }
+
         private async Task<bool> SendCommandAsync(CommandRequest req)
         {
             if (ResponseTimeout <= 0)
@@ -339,8 +388,8 @@ namespace KeyboardOG
         private void OnFormClosing(object sender, FormClosingEventArgs e)
         {
             if (_busy && MessageBox.Show(this,
-                    "还有指令正在下发，现在退出可能会让键盘停在中间状态。仍然退出？",
-                    "确认退出", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                    L.T("还有指令正在下发，现在退出可能会让键盘停在中间状态。仍然退出？"),
+                    L.T("确认退出"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             {
                 e.Cancel = true;
                 return;
@@ -371,19 +420,40 @@ namespace KeyboardOG
                 }
 
                 //下拉框里只留"指令接口"（UsagePage=0xFF00 / Usage=0x01）的设备，
-                //其余（触摸板、音频、鼠标之类）不往列表里塞，免得选错。
-                int cmdCount = all.Count(d => d.IsCommandInterface != 0);
+                //其余（音频、鼠标之类）不往列表里塞，免得选错。
+                var candidates = new List<int>();
+                for (int i = 0; i < all.Count; i++)
+                    if (all[i].IsCommandInterface != 0) candidates.Add(i);
+
+                // 触摸板也会暴露一个 UsagePage=0xFF00/Usage=0x01 的厂商集合，
+                // 光看描述符跟键盘一模一样，分不出来 —— 所以问一句：
+                // 能回设备信息（0xFF 开头那种报文）的才是真键盘。
+                //
+                // 注意：**必须一次全探完**（ProbeAllAsync 内部只发一个作业）。
+                // 原生库只有一份全局句柄，而 Hid_SelectDevice 会先关掉当前设备；
+                // 如果每个设备各发一个作业，用户在探测过程中点"连接"，
+                // 刚打开的句柄就会被探测关掉，之后每条指令都立刻失败
+                //（读直接返回 -1"没有选中设备"）—— 看起来就像"等待时间不到半秒"。
+                if (candidates.Count > 0)
+                {
+                    candidates = await _transport.ProbeAllAsync(candidates.ToArray());
+                    FullRepaint();
+                }
+
+                int cmdCount = candidates.Count;
 
                 //万一一个都没匹配到，就退回列出全部（否则用户根本没法连），并说明原因
-                bool fallback = cmdCount == 0;
+                bool fallback = false;   // 只列真键盘：不再"找不到就全列出来"
 
-                for (int i = 0; i < all.Count; i++)
+                foreach (int i in candidates)
                 {
                     if (!fallback && all[i].IsCommandInterface == 0) continue;
                     cboDevices.Items.Add(all[i].DisplayText);
                     _deviceNativeIndex.Add(i);      //显示项 -> 原生设备表下标
                 }
-                cboDevices.SelectedIndex = 0;
+                // 一个都没列出来（没检测到键盘）时不能设 SelectedIndex，
+                // 空列表设 0 会抛 InvalidArgumentException（之前就崩在这）。
+                if (cboDevices.Items.Count > 0) cboDevices.SelectedIndex = 0;
 
                 if (fallback)
                 {
@@ -394,7 +464,7 @@ namespace KeyboardOG
                 }
 
                 string warn = cmdCount > 1
-                    ? string.Format("⚠ 有 {0} 个设备都带指令接口（例如键盘 + 触摸板），" +
+                    ? string.Format("⚠ 有 {0} 个设备都带指令接口且都能回应探测（例如两块键盘），" +
                                     "只有“#实例号”不同，连接前请确认是你自己的键盘。", cmdCount)
                     : "连接前请核对 VID/PID 是不是你的键盘。";
 
@@ -405,6 +475,10 @@ namespace KeyboardOG
             catch (Exception ex)
             {
                 SetStatus("枚举失败：" + ex.Message);
+            }
+            finally
+            {
+                FullRepaint();      //枚举完布局定下来了，补一次整窗重画
             }
         }
 
@@ -419,7 +493,7 @@ namespace KeyboardOG
             int index = cboDevices.SelectedIndex;
             if (index < 0 || index >= _deviceNativeIndex.Count)
             {
-                MessageBox.Show(this, "请先刷新并选择一个设备。", "提示",
+                MessageBox.Show(this, L.T("请先刷新并选择一个设备。"), L.T("提示"),
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -433,27 +507,28 @@ namespace KeyboardOG
 
             if (err != null)
             {
-                MessageBox.Show(this, "打开设备失败：\r\n" + err, "错误",
+                MessageBox.Show(this, L.T("打开设备失败：\r\n") + err, L.T("错误"),
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         private void OnConnectionChanged(bool connected, string message)
         {
-            lblConnState.Text = message;
+            lblConnState.Text = L.T(message);
             lblConnState.ForeColor = connected
                 ? Color.FromArgb(20, 120, 60)
                 : Color.DimGray;
-            btnConnect.Text = connected ? "断开" : "连接";
+            btnConnect.Text = connected ? L.T("断开") : L.T("连接");
 
             //醒目一点的连接状态徽标
-            lblConnBadge.Text = connected ? "● 设备已连接" : "● 设备未连接";
+            lblConnBadge.Text = connected ? L.T("● 设备已连接") : L.T("● 设备未连接");
             lblConnBadge.BackColor = connected
                 ? Color.FromArgb(30, 150, 70)
                 : Color.FromArgb(200, 40, 40);
 
-            btnWriteAll.Text = string.Format("写入全部按键映射（0 ~ {0}）", _keyCount - 1);
+            btnWriteAll.Text = L.F("写入全部按键映射（0 ~ {0}）", "Write all keys (0 ~ {0})", _keyCount - 1);
             UpdateActionButtons();
+            FullRepaint();          //布局可能刚变过（按键数/面板显隐），补一次重画
 
             // 连接成功后自动跑一次全局查询，把键盘上现有的映射和磁轴参数同步过来。
             // （用 BeginInvoke 是为了让连接流程先走完，再开始收数据。）
@@ -462,7 +537,7 @@ namespace KeyboardOG
 
         private void OnQueueLengthChanged(int pending)
         {
-            lblQueue.Text = "队列：" + pending;
+            lblQueue.Text = L.T("队列：") + pending;
         }
 
         private void OnLogEntryChanged(LogEntry e)
@@ -607,7 +682,7 @@ namespace KeyboardOG
                 _suppressSlotEvents = false;
             }
 
-            lblSlotTitle.Text = string.Format("按键 #{0}：{1}/{2} 条",
+            lblSlotTitle.Text = L.F("按键 #{0}：{1}/{2} 条", "Key #{0}: {1}/{2}",
                 _currentKey, _model.Count(_currentKey), DeviceLimits.MaxBindingsPerKey);
 
             //提示行现在专门用来显示参数说明 / 校准状态（不再显示映射手势提示）
@@ -742,6 +817,66 @@ namespace KeyboardOG
         }
 
         /// <summary>本地与键盘重新一致了（写入成功 / 查询同步过），按键按钮变回绿色。</summary>
+        /// <summary>
+        /// 连接后提示"固件版本 / 软件版本"的支持状态。
+        ///   · 支持：绿字一行，直接给出固件版本与软件版本；
+        ///   · 不支持：红字三行 —— 版本号（谁偏旧就红谁）、"请更新固件/软件"、以及那句不匹配提示。
+        /// </summary>
+        private void ShowFirmwareStatus(DeviceInfo info)
+        {
+            if (info == null) return;
+
+            FirmwareVersion fw = info.Firmware;
+            FirmwareVersion sw = AppVersion.Current;
+            FirmwareSupport support = Compatibility.Check(fw, sw);
+
+            if (support == FirmwareSupport.Supported)
+            {
+                //兼容：只显示版本号（不加"已确认兼容"之类的字）
+                lblFirmware.ForeColor = Color.FromArgb(70, 70, 75);
+                lblFirmware.Text = L.F("固件 {0}\r\n软件 {1}", "Firmware {0}\r\nsoftware {1}", fw, sw);
+                _log.Add(LogKind.Info, "版本检查",
+                    string.Format("版本检查：固件 {0} / 软件 {1}，兼容", fw, sw), null, LogState.Done);
+                return;
+            }
+
+            bool tooOld = support == FirmwareSupport.TooOld;
+
+            lblFirmware.ForeColor = Color.FromArgb(200, 40, 40);
+            lblFirmware.Text =
+                L.F("固件 {0} / 软件 {1}", "Firmware {0} / software {1}", fw, sw) + "\r\n" +
+                (tooOld ? L.T("固件版本过老，请更新固件") : L.T("固件版本过新，请更新软件")) + "\r\n" +
+                L.F("版本不匹配可能导致意料之外的问题",
+                    "Version mismatch may cause unexpected problems");
+
+            _log.Add(LogKind.Warn, "版本检查",
+                string.Format(tooOld ? "版本检查：固件 {0} / 软件 {1}，固件版本过老"
+                                     : "版本检查：固件 {0} / 软件 {1}，固件版本过新", fw, sw),
+                null, LogState.Failed);
+        }
+
+        /// <summary>把某个按键"键盘上的内容"记成当前本地内容（读回来或写成功之后调用）。</summary>
+        private void CaptureDeviceState(int key)
+        {
+            if (key < 0 || key >= _deviceState.Length) return;
+
+            var list = _model[key];
+            var copy = new Binding[list.Count];
+            for (int i = 0; i < list.Count; i++) copy[i] = list[i].Clone();
+            _deviceState[key] = copy;
+        }
+
+        private void CaptureAllDeviceState()
+        {
+            for (int k = 0; k < _keyCount && k < _deviceState.Length; k++) CaptureDeviceState(k);
+        }
+
+        /// <summary>清空全部按键之后：键盘上什么都不剩。</summary>
+        private void CaptureDeviceStateEmpty()
+        {
+            for (int k = 0; k < _deviceState.Length; k++) _deviceState[k] = new Binding[0];
+        }
+
         private void MarkAllClean()
         {
             for (int i = 0; i < _keyDirty.Length; i++) _keyDirty[i] = false;
@@ -760,7 +895,7 @@ namespace KeyboardOG
         private bool RequireConnection()
         {
             if (_transport.IsConnected) return true;
-            MessageBox.Show(this, "还没有连接到键盘的指令接口。请先“刷新设备”→“连接”。",
+            MessageBox.Show(this, L.T("还没有连接到键盘的指令接口。请先“刷新设备”→“连接”。"),
                 "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return false;
         }
@@ -779,31 +914,35 @@ namespace KeyboardOG
             if (!RequireConnection()) return;
 
             var list = _model[_currentKey];
-            string warning = string.Format(
-                "把按键 #{0} 的映射写进键盘：\r\n\r\n" +
-                "  共 {1} 条映射{2}\r\n\r\n" +
-                "只会改写按键 #{0} 自己的 EEPROM 区域，不影响其它按键；\r\n" +
-                "后面的空槽由键盘自动清零，所以只发 {3} 条指令。\r\n" +
-                "写完会自动发一条 CMD_REFRESH，不用重新插拔键盘。\r\n\r\n继续？",
-                _currentKey, list.Count,
-                list.Count == 0 ? "（即清掉这个键的全部映射）" : "",
-                Math.Max(1, list.Count));
 
-            if (MessageBox.Show(this, warning, "写入当前按键映射",
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            //不再弹确认框（单键写入本来就是主操作），直接按"最少指令"发。
+            //BuildKeyWriteRequests 会自动跳过没改动的槽，全都没改动时返回空列表。
+            var requests = BuildKeyWriteRequests(_currentKey);
 
-            bool ok = await RunBatchAsync(BuildKeyWriteRequests(_currentKey),
-                string.Format("写入按键 #{0}", _currentKey), RefreshTarget.Mapping);
+            if (requests.Count == 0)
+            {
+                _keyDirty[_currentKey] = false;
+                RefreshKeyButtons();
+                SetStatus(string.Format(
+                    "按键 #{0} 的本地内容和键盘完全一致，没有需要发送的指令。", _currentKey));
+                return;
+            }
+
+            bool ok = await RunBatchAsync(requests,
+                string.Format("写入按键 #{0}（{1} 条指令）", _currentKey, requests.Count),
+                RefreshTarget.Mapping);
 
             if (ok)
             {
                 //只把这一个按键标成"已同步"。这里**故意不做查询**：
                 //全局查询会把其它按键的本地内容一起覆盖掉，单键写入不该有这种副作用。
+                CaptureDeviceState(_currentKey);
                 _keyDirty[_currentKey] = false;
                 RefreshKeyButtons();
 
-                SetStatus(string.Format("按键 #{0} 的 {1} 条映射已写入并已刷新（这个按键已变绿，别的按键不受影响）。",
-                    _currentKey, list.Count));
+                SetStatus(string.Format(
+                    "按键 #{0} 的 {1} 条映射已写入（只发了 {2} 条指令），别的按键不受影响。",
+                    _currentKey, list.Count, requests.Count));
             }
         }
 
@@ -813,23 +952,42 @@ namespace KeyboardOG
             if (!RequireConnection()) return;
 
             string warning = string.Format(
-                "把本地列表里的全部 {0} 条映射写进键盘（按键 0 ~ {1}）。\r\n\r\n" +
-                "每个按键只发本地有的那几条（后面的空槽键盘会自动清零）。\r\n" +
-                "本地列表里没有的按键，键盘上对应的映射会被清掉。\r\n" +
-                "写完会自动发一条 CMD_REFRESH，不用重新插拔键盘。\r\n\r\n继续？",
+                L.T("把本地列表里的全部 {0} 条映射写进键盘（按键 0 ~ {1}）。\r\n\r\n") +
+                L.T("每个按键只发本地有的那几条（后面的空槽键盘会自动清零）。\r\n") +
+                L.T("本地列表里没有的按键，键盘上对应的映射会被清掉。\r\n") +
+                L.T("写完会自动发一条 CMD_REFRESH，不用重新插拔键盘。\r\n\r\n继续？"),
                 _model.TotalCount, _keyCount - 1, DeviceLimits.MaxBindingsPerKey);
 
-            if (MessageBox.Show(this, warning, "写入全部按键映射",
+            if (MessageBox.Show(this, L.TParts(warning), L.T("写入全部按键映射"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
             var requests = new List<CommandRequest>();
+            int skippedKeys = 0;
             for (int k = 0; k < _keyCount; k++)
-                requests.AddRange(BuildKeyWriteRequests(k));
+            {
+                var part = BuildKeyWriteRequests(k);       //没改动的按键返回空
+                if (part.Count == 0) { skippedKeys++; continue; }
+                requests.AddRange(part);
+            }
 
-            bool allOk = await RunBatchAsync(requests, "写入全部按键映射", RefreshTarget.Mapping);
-            if (allOk) MarkAllClean();
+            if (requests.Count == 0)
+            {
+                MarkAllClean();
+                RefreshKeyButtons();
+                SetStatus("所有按键的本地内容都和键盘一致，没有需要发送的指令。");
+                return;
+            }
+
+            bool allOk = await RunBatchAsync(requests,
+                string.Format("写入全部按键映射（{0} 条指令）", requests.Count), RefreshTarget.Mapping);
+            if (allOk)
+            {
+                CaptureAllDeviceState();
+                MarkAllClean();
+            }
             SetStatus(allOk
-                ? "全部按键已写入并已刷新，所有按键已变绿，可以直接用了。"
+                ? string.Format("全部按键已写入（共 {0} 条指令，{1} 个按键与键盘一致已跳过），可以直接用了。",
+                    requests.Count, skippedKeys)
                 : "全部按键写入过程中有指令没成功，请看日志和状态栏。");
         }
 
@@ -841,33 +999,29 @@ namespace KeyboardOG
         /// 那几条映射，尾部不用再逐条补发空槽。
         /// 列表为空时发一条 device = 0 到槽 0，固件就会把这个键整片清掉。
         /// </summary>
+        /// <summary>
+        /// 生成「写一个按键」的指令序列 —— 由 MappingWriter 按"最少指令"算出来：
+        ///   · 和键盘上一样 → 空列表（一条都不发）
+        ///   · 只是在后面追加 → 每条一个 MAP_DO_APPEND
+        ///   · 本地清空 → 一条 MAP_DO_CLEAR（Byte6 = 0，整个键清掉）
+        ///   · 其它 → 只 OVERRIDE 有变化的槽，本地变短时再补一条 CLEAR 清尾巴
+        /// </summary>
         private List<CommandRequest> BuildKeyWriteRequests(int key)
         {
-            var list = _model[key];
-            int count = Math.Max(1, list.Count);
-            var requests = new List<CommandRequest>(count);
+            var plan = MappingWriter.BuildPlan(_deviceState[key], _model[key], key);
+            var requests = new List<CommandRequest>(plan.Count);
 
-            for (int slot = 0; slot < count; slot++)
+            foreach (var item in plan)
             {
-                byte device = 0, offset = 0;
-                string detail;
+                string name = item.Operation == MapOperation.Append ? "SET_MAP/APPEND"
+                            : item.Operation == MapOperation.Clear ? "SET_MAP/CLEAR"
+                            : "SET_MAP/OVERRIDE";
 
-                if (slot < list.Count)
-                {
-                    var b = list[slot];
-                    device = (byte)b.Device;
-                    offset = b.Offset;
-                    detail = string.Format("按键#{0} 槽{1} ← {2}", key, slot, b.Text);
-                }
-                else
-                {
-                    detail = string.Format("按键#{0} 槽0 ← 空槽（清空该键）", key);
-                }
-
-                requests.Add(CommandRequest.Of("SET_MAP/OVERRIDE", detail,
-                    CommandBuilder.SetMap((MapDevice)device, (byte)key, offset,
-                                          MapOperation.Override, (byte)slot), 0));
+                requests.Add(CommandRequest.Of(name, item.Detail,
+                    CommandBuilder.SetMap((MapDevice)item.Device, item.Key, item.Offset,
+                                          item.Operation, item.Index), 0));
             }
+
             return requests;
         }
 
@@ -876,17 +1030,20 @@ namespace KeyboardOG
             if (!RequireConnection()) return;
 
             if (MessageBox.Show(this,
-                    "这是危险操作：将清空键盘上【全部按键】的映射（EEPROM 里的整片映射区）。\r\n\r\n" +
-                    "本地列表不会被修改，之后可以用“写入全部按键映射”把本地列表重新写回去。\r\n\r\n继续？",
-                    "⚠ 清空全部映射", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                    L.T("这是危险操作：将清空键盘上【全部按键】的映射（EEPROM 里的整片映射区）。\r\n\r\n") +
+                    L.T("本地列表不会被修改，之后可以用“写入全部按键映射”把本地列表重新写回去。\r\n\r\n继续？"),
+                    L.T("⚠ 清空全部映射"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
+            //Byte6（storageIndex）= BUTTONCOUNT 才是"清空全部按键"；
+            //给 0 的话按新固件的语义只是"清掉按键 0"。
             var req = CommandRequest.Of("SET_MAP/CLEAR", "清空全部映射（整片映射区）",
-                CommandBuilder.SetMap(MapDevice.Keyboard, 0, 0, MapOperation.Clear, 0), 0);
+                CommandBuilder.SetMap(MapDevice.Keyboard, 0, 0, MapOperation.Clear, (byte)_keyCount), 0);
 
             bool cleared = await SendWriteAsync(req, RefreshTarget.Mapping);
             if (!cleared) return;
 
             _model.ClearAll();
+            CaptureDeviceStateEmpty();
             MarkAllClean();
             UpdateMappingView();
             SetStatus("已下发清空指令，本地列表也一并清空了（键盘上现在没有任何映射），按键按钮已全部变绿。");
@@ -938,6 +1095,7 @@ namespace KeyboardOG
 
                 int skipped;
                 int imported = ImportMappings(mapOutcome, out skipped);
+                CaptureAllDeviceState();   //记下"键盘上现在是什么"，后面写入时用来做差
                 MarkAllClean();
                 UpdateMappingView();
 
@@ -959,10 +1117,14 @@ namespace KeyboardOG
                     ? ""
                     : "（有查询没收到 FIN，可能是固件版本较旧或是超时，结果可能不完整）";
 
-                SetStatus(string.Format(
-                    "已从键盘同步：{0} 条映射（跳过 {1} 条），{2} 项参数。{3}{4}",
-                    imported, skipped, paramCount,
-                    _model.TotalCount == 0 && imported == 0 ? "键盘上目前没有任何映射。" : "", tail));
+                    // 模板里**不要**用相邻的两个占位符（{3}{4}）：非贪婪匹配会切错，
+                    // 曾经把"键盘上目前没有任何映射。"切成 "键" + "盘上目前没有任何映射。"，
+                    // 前半截被翻成了 keys。分成两段各自翻译再拼。
+                    SetStatus(L.F("已从键盘同步：{0} 条映射（跳过 {1} 条），{2} 项参数。",
+                                  "Synced: {0} mappings (skipped {1}), {2} parameters.",
+                                  imported, skipped, paramCount)
+                              + Hint(_model.TotalCount == 0 && imported == 0 ? "键盘上目前没有任何映射。" : "")
+                              + Hint(tail));
 
                 _log.Add(LogKind.Info, "同步完成",
                     string.Format("从键盘读取到 {0} 条映射、{2} 项参数，跳过 {1} 条。", imported, skipped, paramCount),
@@ -1061,6 +1223,7 @@ namespace KeyboardOG
             }
 
             _deviceInfo = info;
+            ShowFirmwareStatus(info);      //固件/软件版本支持状态
 
             // ---- 按键数量 ----
             int want = info.KeyCount;
@@ -1085,8 +1248,10 @@ namespace KeyboardOG
             for (int i = _keyCount; i < _keyDirty.Length; i++) _keyDirty[i] = false;
 
             //执行条上的文案跟着实际按键数量走
-            btnWriteAll.Text = string.Format("写入全部按键映射（0 ~ {0}）", _keyCount - 1);
-            btnWriteKey.Text = string.Format("写入当前按键映射（全部 {0} 个槽）",
+            //注意：这里必须走 L.F —— 用 string.Format 硬写中文的话，
+            //英文界面下这两个按钮会一直是中文（而且每次刷新槽位数都会再写一遍中文）。
+            btnWriteAll.Text = L.F("写入全部按键映射（0 ~ {0}）", "Write all keys (0 ~ {0})", _keyCount - 1);
+            btnWriteKey.Text = L.F("写入当前按键映射（全部 {0} 个槽）", "Write this key (all {0} slots)",
                 DeviceLimits.MaxBindingsPerKey);
 
             // ---- 是否磁轴 ----
@@ -1135,6 +1300,7 @@ namespace KeyboardOG
 
                 int skipped;
                 int imported = ImportMappings(outcome, out skipped);
+                CaptureAllDeviceState();   //记下"键盘上现在是什么"，后面写入时用来做差
                 MarkAllClean();
                 UpdateMappingView();
 
@@ -1234,7 +1400,7 @@ namespace KeyboardOG
         private void RestoreHint()
         {
             if (_hintTimer != null) { _hintTimer.Stop(); _hintTimer.Dispose(); _hintTimer = null; }
-            lblPickerHint.Text = ParamHintText;
+            lblPickerHint.Text = L.TParts(ParamHintText);
         }
 
         private System.Windows.Forms.Timer _hintTimer;
@@ -1277,18 +1443,18 @@ namespace KeyboardOG
             if (single) keys.Add(_currentKey);
 
             string scope = single
-                ? string.Format("当前按键 #{0}", _currentKey)
-                : string.Format("选中的 {0} 个按键（{1}）", keys.Count, string.Join("/", keys.ConvertAll(k => "#" + k).ToArray()));
+                ? string.Format(L.T("当前按键 #{0}"), _currentKey)
+                : string.Format(L.T("选中的 {0} 个按键（{1}）"), keys.Count, string.Join("/", keys.ConvertAll(k => "#" + k).ToArray()));
 
             if (MessageBox.Show(this,
-                    string.Format("把四个参数写入 {0}？\r\n\r\n{1}\r\n\r\n每条指令都会等键盘回 FIN，写完全局刷新一次，不用重新插拔。\r\n\r\n继续？",
+                    string.Format(L.T("把四个参数写入 {0}？\r\n\r\n{1}\r\n\r\n每条指令都会等键盘回 FIN，写完全局刷新一次，不用重新插拔。\r\n\r\n继续？"),
                         scope,
                         string.Join("\r\n", Array.ConvertAll(ParamOrder, p =>
-                            string.Format("  {0} = {1}（{2}）",
-                                BindingCatalog.Parameter(p).Name,
+                            string.Format(L.T("  {0} = {1}（{2}）"),
+                                L.T(BindingCatalog.Parameter(p).Name),
                                 values[Array.IndexOf(ParamOrder, p)],
                                 BindingCatalog.FormatParameterValue(values[Array.IndexOf(ParamOrder, p)]))))),
-                    "写入磁轴参数", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    L.T("写入磁轴参数"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
             _busy = true;
             SetBusy(true);
@@ -1380,13 +1546,13 @@ namespace KeyboardOG
             if (!RequireConnection()) return;
 
             string warning = mode == CalibrateMode.All
-                ? "校准全部按键：\r\n\r\n" +
-                  "固件会从按键 0 开始逐个校准，每个键都需要你【先按住再松开】。\r\n" +
-                  "整个过程中固件的主循环被占用，其它指令不会被处理。\r\n" +
-                  "请预留大约 " + _keyCount + " × 每个键 2 秒 的时间，中途不要拔线。\r\n\r\n开始校准？"
-                : string.Format("校准当前按键 #{0}：\r\n\r\n请【先按住再松开】这个键，固件会记录行程的上下限。\r\n\r\n开始校准？", _currentKey);
+                ? L.T("校准全部按键：\r\n\r\n") +
+                  L.T("固件会从按键 0 开始逐个校准，每个键都需要你【先按住再松开】。\r\n") +
+                  L.T("整个过程中固件的主循环被占用，其它指令不会被处理。\r\n") +
+                  L.T("请预留大约 ") + _keyCount + L.T(" × 每个键 2 秒 的时间，中途不要拔线。\r\n\r\n开始校准？")
+                : string.Format(L.T("校准当前按键 #{0}：\r\n\r\n请【先按住再松开】这个键，固件会记录行程的上下限。\r\n\r\n开始校准？"), _currentKey);
 
-            if (MessageBox.Show(this, warning, "磁轴校准",
+            if (MessageBox.Show(this, L.TParts(warning), L.T("磁轴校准"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
             bool isAll = mode == CalibrateMode.All;
@@ -1482,7 +1648,7 @@ namespace KeyboardOG
         {
             if (_busy)
             {
-                MessageBox.Show(this, "有批量指令正在执行，请等它结束。", "提示",
+                MessageBox.Show(this, L.T("有批量指令正在执行，请等它结束。"), L.T("提示"),
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return false;
             }
@@ -1523,9 +1689,164 @@ namespace KeyboardOG
             }
         }
 
-        private void SetStatus(string text)
+        // ============================================================
+        //  拔出自动断开
+        //
+        //  Windows 在设备树发生变化时会发 WM_DEVICECHANGE（拔插 U 盘、键鼠都会触发，
+        //  不需要 RegisterDeviceNotification 也能收到 DBT_DEVNODES_CHANGED）。
+        //  收到后等 800ms 再探一次：拔出来的那一下会连着来好几条通知，
+        //  等稳定了再问，免得误判成掉线。
+        // ============================================================
+        private const int WM_DEVICECHANGE = 0x0219;
+        private const int DBT_DEVNODES_CHANGED = 0x0007;
+        private const int DBT_DEVICEREMOVECOMPLETE = 0x8004;
+
+        private readonly System.Windows.Forms.Timer _deviceChangeTimer = new System.Windows.Forms.Timer();
+
+        protected override void WndProc(ref Message m)
         {
-            lblStatus.Text = text;
+            base.WndProc(ref m);
+
+            if (m.Msg == WM_DEVICECHANGE)
+            {
+                int evt = m.WParam.ToInt32();
+                if (evt == DBT_DEVNODES_CHANGED || evt == DBT_DEVICEREMOVECOMPLETE) ArmDeviceChangeCheck();
+            }
+        }
+
+        /// <summary>设备树变了：过一会儿确认连接还在不在（重复触发就不断推后）。</summary>
+        private void ArmDeviceChangeCheck()
+        {
+            if (!_transport.IsConnected) return;
+
+            _deviceChangeTimer.Stop();
+            _deviceChangeTimer.Interval = 800;
+            _deviceChangeTimer.Start();
+        }
+
+        /// <summary>连续几次探不到才判定掉线（一次可能是板子正忙，别误断）。</summary>
+        private int _pingFailures;
+
+        private async void OnDeviceChangeTimerTick(object sender, EventArgs e)
+        {
+            _deviceChangeTimer.Stop();
+            if (!_transport.IsConnected || _busy) return;
+
+            bool alive = await _transport.PingAsync();
+            if (alive || !_transport.IsConnected)
+            {
+                _pingFailures = 0;
+                return;
+            }
+
+            // 一次探不到不算数（板子可能正好在忙）：再等一会儿探第二次
+            if (++_pingFailures < 2)
+            {
+                _deviceChangeTimer.Interval = 1200;
+                _deviceChangeTimer.Start();
+                return;
+            }
+
+            _pingFailures = 0;
+            await _transport.DisconnectAsync();
+            SetStatus("键盘已经拔掉，已自动断开连接。插好后点“刷新设备”再连接。");
+            _log.Add(LogKind.Warn, "断开", "检测到键盘已拔出，自动断开连接", null, LogState.Failed);
+        }
+
+        /// <summary>状态栏当前内容的中文原文（切语言时用它重画一遍）。</summary>
+        private string _statusZh = "";
+
+        /// <param name="alreadyLocalized">
+        /// 文本里已经含有"按当前语言渲染好的片段"（设置摘要、文件路径之类）时为 true：
+        /// 这时只显示、不再查表翻译，并且不参与切语言时的重画（重画反而会翻错）。
+        /// </param>
+        private void SetStatus(string text, bool alreadyLocalized = false)
+        {
+            _statusZh = alreadyLocalized ? null : (text ?? "");
+            lblStatus.Text = alreadyLocalized ? (text ?? "") : L.T(_statusZh);
+        }
+
+        // ============================================================
+        //  界面重画（修"转移位置后第一次打开，界面缺一块"）
+        //
+        //  现象：把软件拷到别的位置之后第一次打开，界面有的部件不出来；
+        //        鼠标划过的（会自己 Invalidate 的自绘控件）能刷出来，
+        //        纯文本的 Label 不响应鼠标，就一直空着，只能关掉重开。
+        //
+        //  原因：这类部件本身是好的，是窗口的**第一遍 WM_PAINT 被丢掉了**。
+        //        新位置第一次运行时，系统/杀软要扫一遍新拷过去的 exe 和 dll、
+        //        CLR 还要重新 JIT，进程会被卡住好几秒；这期间 Windows 会把
+        //        未处理的绘制请求合并甚至直接丢掉并把区域标记成"已画过"，
+        //        于是那部分就永远不画了（下次启动文件已在缓存里，够快，
+        //        第一遍绘制正常完成，所以就"下次打开就好了"）。
+        //
+        //  修法：启动完成后主动补几次整窗重画（含所有子控件），
+        //        把丢掉的那些绘制补回来；连接状态变化/重新枚举之后再补一次，
+        //        因为那时布局会变（按键数、面板显隐）。
+        // ============================================================
+
+        /// <summary>把整个窗口（含全部子控件）重新绘制一遍。</summary>
+        private void FullRepaint()
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            try
+            {
+                PerformLayout();
+                Invalidate(true);
+                Update();
+            }
+            catch (ObjectDisposedException) { }
+        }
+
+        /// <summary>启动后隔几个时间点各补一次整窗重画（第一次启动可能被卡住好几秒）。</summary>
+        private void ScheduleStartupRepaint()
+        {
+            FullRepaint();
+
+            foreach (int delay in new[] { 120, 400, 1200 })
+            {
+                var timer = new System.Windows.Forms.Timer { Interval = delay };
+                timer.Tick += (s, e) =>
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                    FullRepaint();
+                };
+                timer.Start();
+            }
+        }
+
+        /// <summary>
+        /// 把界面语言整体套一遍：静态文本 + 各处代码里拼出来的动态文本。
+        /// 设置对话框里换语言时会立刻调用，所以不用重启程序。
+        /// </summary>
+        private void ApplyLanguage()
+        {
+            L.Current = (_settings.Language == 1) ? UiLanguage.English : UiLanguage.Chinese;
+
+            L.Apply(this);                 // 所有控件上的静态文本
+            hallPanel.ApplyLanguage();     // 磁轴面板里有些文本是代码里拼的
+            UpdateMappingView();           // 映射列表条目 + "按键 #N：n/12"
+            RefreshParamDisplay();         // "键盘 xx"
+            UpdateSlotButtons();
+            RestoreHint();                 // 提示行
+            if (_statusZh != null) SetStatus(_statusZh);   // 状态栏（按记下来的中文原文重翻）
+            ShowFirmwareStatus(_deviceInfo);               // 固件/软件版本那两行也跟着换语言
+
+            lblQueue.Text = L.T("队列：") + 0;   // 立刻会被 OnQueueLengthChanged 覆盖，先占位
+            btnConnect.Text = _transport.IsConnected ? L.T("断开") : L.T("连接");
+            lblConnBadge.Text = _transport.IsConnected ? L.T("● 设备已连接") : L.T("● 设备未连接");
+            btnWriteAll.Text = L.F("写入全部按键映射（0 ~ {0}）", "Write all keys (0 ~ {0})", _keyCount - 1);
+
+            foreach (var p in _pickers)
+            {
+                var c = p as Control;
+                if (c != null) c.Invalidate();      // 自绘控件里的文字要重画
+            }
+
+            if (_logForm != null) _logForm.ApplyLanguage();
+
+            FullRepaint();
         }
 
         private void SetBusy(bool busy)
@@ -1564,6 +1885,11 @@ namespace KeyboardOG
         }
 
         private void hallPanel_Load(object sender, EventArgs e)
+        {
+
+        }
+
+        private void lblFirmware_Click(object sender, EventArgs e)
         {
 
         }

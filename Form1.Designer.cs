@@ -31,6 +31,7 @@ namespace KeyboardOG
             this.panelTop = new System.Windows.Forms.Panel();
             this.lblConnBadge = new System.Windows.Forms.Label();
             this.lblStatus = new System.Windows.Forms.Label();
+            this.lblFirmware = new System.Windows.Forms.Label();
             this.lblQueue = new System.Windows.Forms.Label();
             this.lblConnState = new System.Windows.Forms.Label();
             this.btnSettings = new System.Windows.Forms.Button();
@@ -55,20 +56,14 @@ namespace KeyboardOG
             this.tabsPicker = new System.Windows.Forms.TabControl();
             this.tabKeyboard = new System.Windows.Forms.TabPage();
             this.panelKbScroll = new System.Windows.Forms.Panel();
-            this.keyboard1 = new KeyboardOG.Keyboard();
             this.tabMouse = new System.Windows.Forms.TabPage();
-            this.mousePicker = new KeyboardOG.MouseControl();
             this.tabGamepad = new System.Windows.Forms.TabPage();
-            this.gamepadPicker = new KeyboardOG.GamepadControl();
             this.tabConsumer = new System.Windows.Forms.TabPage();
-            this.consumerPicker = new KeyboardOG.ConsumerControl();
             this.lblPickerHint = new System.Windows.Forms.Label();
-            this.hallPanel = new KeyboardOG.HallParamControl();
             this.panelLeft = new System.Windows.Forms.Panel();
             this.grpSlots = new System.Windows.Forms.GroupBox();
             this.panelSync = new System.Windows.Forms.Panel();
             this.btnSyncMaps = new System.Windows.Forms.Button();
-            this.btnSyncParams = new System.Windows.Forms.Button();
             this.panelBindBtns = new System.Windows.Forms.Panel();
             this.btnSlotUp = new System.Windows.Forms.Button();
             this.btnSlotDown = new System.Windows.Forms.Button();
@@ -84,6 +79,12 @@ namespace KeyboardOG
             this.lblKeyHint = new System.Windows.Forms.Label();
             this.lblKeyReserved = new System.Windows.Forms.Label();
             this.flpKeys = new System.Windows.Forms.FlowLayoutPanel();
+            this.btnSyncParams = new System.Windows.Forms.Button();
+            this.keyboard1 = new KeyboardOG.Keyboard();
+            this.mousePicker = new KeyboardOG.MouseControl();
+            this.gamepadPicker = new KeyboardOG.GamepadControl();
+            this.consumerPicker = new KeyboardOG.ConsumerControl();
+            this.hallPanel = new KeyboardOG.HallParamControl();
             this.panelTop.SuspendLayout();
             this.panelActions.SuspendLayout();
             this.panelMain.SuspendLayout();
@@ -108,6 +109,7 @@ namespace KeyboardOG
             this.panelTop.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(240)))), ((int)(((byte)(244)))), ((int)(((byte)(249)))));
             this.panelTop.Controls.Add(this.lblConnBadge);
             this.panelTop.Controls.Add(this.lblStatus);
+            this.panelTop.Controls.Add(this.lblFirmware);
             this.panelTop.Controls.Add(this.lblQueue);
             this.panelTop.Controls.Add(this.lblConnState);
             this.panelTop.Controls.Add(this.btnSettings);
@@ -119,7 +121,7 @@ namespace KeyboardOG
             this.panelTop.Dock = System.Windows.Forms.DockStyle.Top;
             this.panelTop.Location = new System.Drawing.Point(0, 0);
             this.panelTop.Name = "panelTop";
-            this.panelTop.Size = new System.Drawing.Size(1480, 100);
+            this.panelTop.Size = new System.Drawing.Size(1480, 104);
             this.panelTop.TabIndex = 0;
             // 
             // lblConnBadge
@@ -140,10 +142,19 @@ namespace KeyboardOG
             this.lblStatus.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(20)))), ((int)(((byte)(70)))), ((int)(((byte)(150)))));
             this.lblStatus.Location = new System.Drawing.Point(12, 74);
             this.lblStatus.Name = "lblStatus";
-            this.lblStatus.Size = new System.Drawing.Size(1456, 20);
+            this.lblStatus.Size = new System.Drawing.Size(1028, 20);
             this.lblStatus.TabIndex = 10;
-            this.lblStatus.Text = "就绪。请先点“刷新设备”，选中带 ★ 的指令接口后点“连接”。";
+            this.lblStatus.Text = "就绪。请先点“刷新设备”，选中你的键盘后点“连接”。";
             this.lblStatus.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            // 
+            // lblFirmware
+            // 
+            this.lblFirmware.Location = new System.Drawing.Point(1046, 11);
+            this.lblFirmware.Name = "lblFirmware";
+            this.lblFirmware.Size = new System.Drawing.Size(202, 90);
+            this.lblFirmware.TabIndex = 13;
+            this.lblFirmware.TextAlign = System.Drawing.ContentAlignment.TopRight;
+            this.lblFirmware.Click += new System.EventHandler(this.lblFirmware_Click);
             // 
             // lblQueue
             // 
@@ -170,9 +181,9 @@ namespace KeyboardOG
             // 
             this.btnSettings.Location = new System.Drawing.Point(1256, 11);
             this.btnSettings.Name = "btnSettings";
-            this.btnSettings.Size = new System.Drawing.Size(88, 28);
+            this.btnSettings.Size = new System.Drawing.Size(96, 28);
             this.btnSettings.TabIndex = 11;
-            this.btnSettings.Text = "设置…";
+            this.btnSettings.Text = "设置/config";
             this.btnSettings.UseVisualStyleBackColor = true;
             // 
             // btnOpenLog
@@ -337,9 +348,9 @@ namespace KeyboardOG
             this.panelMain.Controls.Add(this.panelRight);
             this.panelMain.Controls.Add(this.panelLeft);
             this.panelMain.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.panelMain.Location = new System.Drawing.Point(0, 100);
+            this.panelMain.Location = new System.Drawing.Point(0, 104);
             this.panelMain.Name = "panelMain";
-            this.panelMain.Size = new System.Drawing.Size(1480, 708);
+            this.panelMain.Size = new System.Drawing.Size(1480, 704);
             this.panelMain.TabIndex = 2;
             // 
             // panelRight
@@ -349,7 +360,7 @@ namespace KeyboardOG
             this.panelRight.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelRight.Location = new System.Drawing.Point(364, 0);
             this.panelRight.Name = "panelRight";
-            this.panelRight.Size = new System.Drawing.Size(1116, 708);
+            this.panelRight.Size = new System.Drawing.Size(1116, 704);
             this.panelRight.TabIndex = 1;
             // 
             // panelPickerHost
@@ -359,7 +370,7 @@ namespace KeyboardOG
             this.panelPickerHost.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelPickerHost.Location = new System.Drawing.Point(0, 0);
             this.panelPickerHost.Name = "panelPickerHost";
-            this.panelPickerHost.Size = new System.Drawing.Size(1116, 502);
+            this.panelPickerHost.Size = new System.Drawing.Size(1116, 498);
             this.panelPickerHost.TabIndex = 0;
             // 
             // tabsPicker
@@ -372,7 +383,7 @@ namespace KeyboardOG
             this.tabsPicker.Location = new System.Drawing.Point(0, 0);
             this.tabsPicker.Name = "tabsPicker";
             this.tabsPicker.SelectedIndex = 0;
-            this.tabsPicker.Size = new System.Drawing.Size(1116, 476);
+            this.tabsPicker.Size = new System.Drawing.Size(1116, 472);
             this.tabsPicker.TabIndex = 0;
             // 
             // tabKeyboard
@@ -381,7 +392,7 @@ namespace KeyboardOG
             this.tabKeyboard.Location = new System.Drawing.Point(4, 26);
             this.tabKeyboard.Name = "tabKeyboard";
             this.tabKeyboard.Padding = new System.Windows.Forms.Padding(3);
-            this.tabKeyboard.Size = new System.Drawing.Size(1108, 446);
+            this.tabKeyboard.Size = new System.Drawing.Size(1108, 442);
             this.tabKeyboard.TabIndex = 0;
             this.tabKeyboard.Text = "键盘";
             this.tabKeyboard.UseVisualStyleBackColor = true;
@@ -393,17 +404,8 @@ namespace KeyboardOG
             this.panelKbScroll.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelKbScroll.Location = new System.Drawing.Point(3, 3);
             this.panelKbScroll.Name = "panelKbScroll";
-            this.panelKbScroll.Size = new System.Drawing.Size(1102, 440);
+            this.panelKbScroll.Size = new System.Drawing.Size(1102, 436);
             this.panelKbScroll.TabIndex = 0;
-            // 
-            // keyboard1
-            // 
-            this.keyboard1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
-            this.keyboard1.Location = new System.Drawing.Point(14, 44);
-            this.keyboard1.Name = "keyboard1";
-            this.keyboard1.SelectionMode = true;
-            this.keyboard1.Size = new System.Drawing.Size(1070, 286);
-            this.keyboard1.TabIndex = 0;
             // 
             // tabMouse
             // 
@@ -411,19 +413,10 @@ namespace KeyboardOG
             this.tabMouse.Location = new System.Drawing.Point(4, 22);
             this.tabMouse.Name = "tabMouse";
             this.tabMouse.Padding = new System.Windows.Forms.Padding(3);
-            this.tabMouse.Size = new System.Drawing.Size(1108, 450);
+            this.tabMouse.Size = new System.Drawing.Size(1108, 446);
             this.tabMouse.TabIndex = 1;
             this.tabMouse.Text = "鼠标";
             this.tabMouse.UseVisualStyleBackColor = true;
-            // 
-            // mousePicker
-            // 
-            this.mousePicker.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
-            this.mousePicker.Location = new System.Drawing.Point(392, 6);
-            this.mousePicker.Name = "mousePicker";
-            this.mousePicker.SelectionMode = true;
-            this.mousePicker.Size = new System.Drawing.Size(320, 430);
-            this.mousePicker.TabIndex = 0;
             // 
             // tabGamepad
             // 
@@ -431,19 +424,10 @@ namespace KeyboardOG
             this.tabGamepad.Location = new System.Drawing.Point(4, 22);
             this.tabGamepad.Name = "tabGamepad";
             this.tabGamepad.Padding = new System.Windows.Forms.Padding(3);
-            this.tabGamepad.Size = new System.Drawing.Size(1108, 450);
+            this.tabGamepad.Size = new System.Drawing.Size(1108, 446);
             this.tabGamepad.TabIndex = 2;
             this.tabGamepad.Text = "手柄";
             this.tabGamepad.UseVisualStyleBackColor = true;
-            // 
-            // gamepadPicker
-            // 
-            this.gamepadPicker.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
-            this.gamepadPicker.Location = new System.Drawing.Point(262, 12);
-            this.gamepadPicker.Name = "gamepadPicker";
-            this.gamepadPicker.SelectionMode = true;
-            this.gamepadPicker.Size = new System.Drawing.Size(580, 420);
-            this.gamepadPicker.TabIndex = 0;
             // 
             // tabConsumer
             // 
@@ -451,42 +435,21 @@ namespace KeyboardOG
             this.tabConsumer.Location = new System.Drawing.Point(4, 22);
             this.tabConsumer.Name = "tabConsumer";
             this.tabConsumer.Padding = new System.Windows.Forms.Padding(3);
-            this.tabConsumer.Size = new System.Drawing.Size(1108, 450);
+            this.tabConsumer.Size = new System.Drawing.Size(1108, 446);
             this.tabConsumer.TabIndex = 3;
             this.tabConsumer.Text = "多媒体";
             this.tabConsumer.UseVisualStyleBackColor = true;
-            // 
-            // consumerPicker
-            // 
-            this.consumerPicker.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
-            this.consumerPicker.Location = new System.Drawing.Point(292, 70);
-            this.consumerPicker.Name = "consumerPicker";
-            this.consumerPicker.SelectionMode = true;
-            this.consumerPicker.Size = new System.Drawing.Size(520, 300);
-            this.consumerPicker.TabIndex = 0;
             // 
             // lblPickerHint
             // 
             this.lblPickerHint.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.lblPickerHint.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
-            this.lblPickerHint.Location = new System.Drawing.Point(0, 476);
+            this.lblPickerHint.Location = new System.Drawing.Point(0, 472);
             this.lblPickerHint.Name = "lblPickerHint";
             this.lblPickerHint.Size = new System.Drawing.Size(1116, 26);
             this.lblPickerHint.TabIndex = 1;
             this.lblPickerHint.Text = "当前按键 #0 · 已选 0/12 · 在上方页面里点击要映射到的按键";
             this.lblPickerHint.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
-            // hallPanel
-            // 
-            this.hallPanel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
-            this.hallPanel.Dock = System.Windows.Forms.DockStyle.Bottom;
-            this.hallPanel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.hallPanel.Location = new System.Drawing.Point(0, 502);
-            this.hallPanel.Name = "hallPanel";
-            this.hallPanel.SelectedKey = 0;
-            this.hallPanel.Size = new System.Drawing.Size(1116, 206);
-            this.hallPanel.TabIndex = 1;
-            this.hallPanel.Load += new System.EventHandler(this.hallPanel_Load);
             // 
             // panelLeft
             // 
@@ -496,7 +459,7 @@ namespace KeyboardOG
             this.panelLeft.Location = new System.Drawing.Point(0, 0);
             this.panelLeft.Name = "panelLeft";
             this.panelLeft.Padding = new System.Windows.Forms.Padding(4, 0, 4, 4);
-            this.panelLeft.Size = new System.Drawing.Size(364, 708);
+            this.panelLeft.Size = new System.Drawing.Size(364, 704);
             this.panelLeft.TabIndex = 0;
             // 
             // grpSlots
@@ -508,7 +471,7 @@ namespace KeyboardOG
             this.grpSlots.Dock = System.Windows.Forms.DockStyle.Fill;
             this.grpSlots.Location = new System.Drawing.Point(4, 152);
             this.grpSlots.Name = "grpSlots";
-            this.grpSlots.Size = new System.Drawing.Size(356, 552);
+            this.grpSlots.Size = new System.Drawing.Size(356, 548);
             this.grpSlots.TabIndex = 1;
             this.grpSlots.TabStop = false;
             this.grpSlots.Text = "2. 按键映射列表";
@@ -517,7 +480,7 @@ namespace KeyboardOG
             // 
             this.panelSync.Controls.Add(this.btnSyncMaps);
             this.panelSync.Dock = System.Windows.Forms.DockStyle.Bottom;
-            this.panelSync.Location = new System.Drawing.Point(3, 515);
+            this.panelSync.Location = new System.Drawing.Point(3, 511);
             this.panelSync.Name = "panelSync";
             this.panelSync.Size = new System.Drawing.Size(350, 34);
             this.panelSync.TabIndex = 3;
@@ -530,15 +493,6 @@ namespace KeyboardOG
             this.btnSyncMaps.TabIndex = 0;
             this.btnSyncMaps.Text = "重新读取映射（放弃改动）";
             this.btnSyncMaps.UseVisualStyleBackColor = true;
-            // 
-            // btnSyncParams
-            // 
-            this.btnSyncParams.Location = new System.Drawing.Point(178, 2);
-            this.btnSyncParams.Name = "btnSyncParams";
-            this.btnSyncParams.Size = new System.Drawing.Size(172, 28);
-            this.btnSyncParams.TabIndex = 1;
-            this.btnSyncParams.Text = "重新读取磁轴参数";
-            this.btnSyncParams.UseVisualStyleBackColor = true;
             // 
             // panelBindBtns
             // 
@@ -563,16 +517,16 @@ namespace KeyboardOG
             // 
             // btnSlotDown
             // 
-            this.btnSlotDown.Location = new System.Drawing.Point(60, 3);
+            this.btnSlotDown.Location = new System.Drawing.Point(62, 3);
             this.btnSlotDown.Name = "btnSlotDown";
-            this.btnSlotDown.Size = new System.Drawing.Size(56, 26);
+            this.btnSlotDown.Size = new System.Drawing.Size(66, 26);
             this.btnSlotDown.TabIndex = 1;
             this.btnSlotDown.Text = "↓ 下移";
             this.btnSlotDown.UseVisualStyleBackColor = true;
             // 
             // btnSlotDelete
             // 
-            this.btnSlotDelete.Location = new System.Drawing.Point(120, 3);
+            this.btnSlotDelete.Location = new System.Drawing.Point(132, 3);
             this.btnSlotDelete.Name = "btnSlotDelete";
             this.btnSlotDelete.Size = new System.Drawing.Size(56, 26);
             this.btnSlotDelete.TabIndex = 2;
@@ -581,9 +535,9 @@ namespace KeyboardOG
             // 
             // btnSlotClear
             // 
-            this.btnSlotClear.Location = new System.Drawing.Point(180, 3);
+            this.btnSlotClear.Location = new System.Drawing.Point(192, 3);
             this.btnSlotClear.Name = "btnSlotClear";
-            this.btnSlotClear.Size = new System.Drawing.Size(150, 26);
+            this.btnSlotClear.Size = new System.Drawing.Size(138, 26);
             this.btnSlotClear.TabIndex = 3;
             this.btnSlotClear.Text = "清空该键";
             this.btnSlotClear.UseVisualStyleBackColor = true;
@@ -689,6 +643,63 @@ namespace KeyboardOG
             this.flpKeys.Size = new System.Drawing.Size(342, 84);
             this.flpKeys.TabIndex = 0;
             // 
+            // btnSyncParams
+            // 
+            this.btnSyncParams.Location = new System.Drawing.Point(178, 2);
+            this.btnSyncParams.Name = "btnSyncParams";
+            this.btnSyncParams.Size = new System.Drawing.Size(172, 28);
+            this.btnSyncParams.TabIndex = 1;
+            this.btnSyncParams.Text = "重新读取磁轴参数";
+            this.btnSyncParams.UseVisualStyleBackColor = true;
+            // 
+            // keyboard1
+            // 
+            this.keyboard1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
+            this.keyboard1.Location = new System.Drawing.Point(14, 44);
+            this.keyboard1.Name = "keyboard1";
+            this.keyboard1.SelectionMode = true;
+            this.keyboard1.Size = new System.Drawing.Size(1070, 286);
+            this.keyboard1.TabIndex = 0;
+            // 
+            // mousePicker
+            // 
+            this.mousePicker.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
+            this.mousePicker.Location = new System.Drawing.Point(392, 6);
+            this.mousePicker.Name = "mousePicker";
+            this.mousePicker.SelectionMode = true;
+            this.mousePicker.Size = new System.Drawing.Size(320, 430);
+            this.mousePicker.TabIndex = 0;
+            // 
+            // gamepadPicker
+            // 
+            this.gamepadPicker.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
+            this.gamepadPicker.Location = new System.Drawing.Point(262, 12);
+            this.gamepadPicker.Name = "gamepadPicker";
+            this.gamepadPicker.SelectionMode = true;
+            this.gamepadPicker.Size = new System.Drawing.Size(580, 420);
+            this.gamepadPicker.TabIndex = 0;
+            // 
+            // consumerPicker
+            // 
+            this.consumerPicker.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
+            this.consumerPicker.Location = new System.Drawing.Point(292, 70);
+            this.consumerPicker.Name = "consumerPicker";
+            this.consumerPicker.SelectionMode = true;
+            this.consumerPicker.Size = new System.Drawing.Size(520, 300);
+            this.consumerPicker.TabIndex = 0;
+            // 
+            // hallPanel
+            // 
+            this.hallPanel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
+            this.hallPanel.Dock = System.Windows.Forms.DockStyle.Bottom;
+            this.hallPanel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.hallPanel.Location = new System.Drawing.Point(0, 498);
+            this.hallPanel.Name = "hallPanel";
+            this.hallPanel.SelectedKey = 0;
+            this.hallPanel.Size = new System.Drawing.Size(1116, 206);
+            this.hallPanel.TabIndex = 1;
+            this.hallPanel.Load += new System.EventHandler(this.hallPanel_Load);
+            // 
             // Form1
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
@@ -739,6 +750,7 @@ namespace KeyboardOG
 
         private System.Windows.Forms.Label lblQueue;
         private System.Windows.Forms.Label lblStatus;
+        private System.Windows.Forms.Label lblFirmware;
         private System.Windows.Forms.Label lblActionHint;
         private System.Windows.Forms.Panel panelActions;
         private System.Windows.Forms.Label lblSingleTitle;

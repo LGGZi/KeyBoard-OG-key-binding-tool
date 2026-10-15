@@ -269,6 +269,9 @@ namespace KeyboardOG
         /// <summary>设备类型（保留给后续手台主控）。</summary>
         public int DeviceType;
 
+        /// <summary>[7]：固件版本号（2|3|3 位切分，见 VersionInfo.cs）。</summary>
+        public FirmwareVersion Firmware;
+
         /// <summary>保留的三位，先存着备用（Layout 识别）。</summary>
         public byte[] Reserved = new byte[3];
 
@@ -288,6 +291,7 @@ namespace KeyboardOG
             info.Reserved[0]   = r[5];
             info.Reserved[1]   = r[6];
             info.Reserved[2]   = r[7];
+            info.Firmware      = FirmwareVersion.FromByte(r[7]);   //最后一位是固件版本
             info.Raw           = (byte[])r.Clone();
             return info;
         }
@@ -367,8 +371,8 @@ namespace KeyboardOG
         public override string ToString()
         {
             return string.IsNullOrEmpty(Note)
-                ? string.Format("{0} (0x{1:X2})", Name, Offset)
-                : string.Format("{0} (0x{1:X2}) - {2}", Name, Offset, Note);
+                ? string.Format("{0} (0x{1:X2})", L.T(Name), Offset)
+                : string.Format("{0} (0x{1:X2}) - {2}", L.T(Name), Offset, L.T(Note));
         }
     }
 
@@ -378,7 +382,7 @@ namespace KeyboardOG
         public string Name;
         public string Note;
 
-        public override string ToString() { return Name; }
+        public override string ToString() { return L.T(Name); }
     }
 
     /// <summary>设备类型 / 偏移量的可读名称表。</summary>
@@ -388,11 +392,11 @@ namespace KeyboardOG
         {
             switch (d)
             {
-                case MapDevice.Keyboard: return "键盘";
-                case MapDevice.Gamepad:  return "手柄";
-                case MapDevice.Mouse:    return "鼠标";
-                case MapDevice.Consumer: return "多媒体";
-                default: return "未知";
+                case MapDevice.Keyboard: return L.T("键盘");
+                case MapDevice.Gamepad:  return L.T("手柄");
+                case MapDevice.Mouse:    return L.T("鼠标");
+                case MapDevice.Consumer: return L.T("多媒体");
+                default: return L.T("未知");
             }
         }
 
@@ -556,7 +560,7 @@ namespace KeyboardOG
         /// </summary>
         public static string FormatParameterValue(int value)
         {
-            return string.Format(CultureInfo.InvariantCulture, "= {0} / 1000（满行程的 {1:0.0}%）",
+            return L.F("= {0} / 1000（满行程的 {1:0.0}%）", "= {0} / 1000 ({1:0.0}% of travel)",
                 value, value / 10.0);
         }
     }

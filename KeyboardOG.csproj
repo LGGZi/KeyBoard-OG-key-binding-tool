@@ -91,6 +91,7 @@
     <Compile Include="SettingsForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Language.cs" />
     <Compile Include="HallParamControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -106,6 +107,8 @@
     <Compile Include="Protocol\CommandLog.cs" />
     <Compile Include="Protocol\HidTransport.cs" />
     <Compile Include="Protocol\KeyMapModel.cs" />
+    <Compile Include="Protocol\MappingWriter.cs" />
+    <Compile Include="Protocol\VersionInfo.cs" />
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.cs</DependentUpon>
     </EmbeddedResource>

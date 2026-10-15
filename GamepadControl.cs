@@ -116,11 +116,11 @@ namespace KeyboardOG
                 bool selectable = pad.Enabled;
                 string sub = selectable ? "bit" + pad.Offset : null;
                 bool selected = selectable && _selected.Contains(pad.Offset);
-                PickerDraw.Pad(g, pad.Rect, pad.Text, sub, selected, selectable,
+                PickerDraw.Pad(g, pad.Rect, L.T(pad.Text), sub, selected, selectable,
                                selectable && _hover == pad.Offset, pad.Circle);
             }
 
-            PickerDraw.Note(g, "手柄映射：offset 0~15 → xboxButtons bit0~bit15（描述符里的 B1~B16）",
+            PickerDraw.Note(g, L.T("手柄映射：offset 0~15 → xboxButtons bit0~bit15（描述符里的 B1~B16）"),
                 16, CanvasHeight - 30, CanvasWidth - 32);
         }
 
