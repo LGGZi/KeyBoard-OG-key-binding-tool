@@ -1,5 +1,0 @@
-﻿# 由 Make-Cert.ps1 生成，Sign-App.ps1 / Install-Trust.ps1 会读这里
-Thumbprint=BA73716356FF38DA854A8E7C529FC310772DE4AF
-Subject=CN=LGGZ
-NotAfter=2036-10-12
-PfxPassword=123456
