@@ -61,7 +61,8 @@ namespace KeyboardOG
                     string name = Name;
                     if (string.IsNullOrWhiteSpace(name)) name = "(无产品名)";
 
-                    string mark = IsCommandInterface != 0 ? " ★指令接口" : string.Empty;
+                    //列表里已经只剩指令接口了，这个标记没意义（而且会跟着语言变），去掉
+            string mark = string.Empty;
                     string vendor = VendorName;
                     if (string.IsNullOrWhiteSpace(vendor)) vendor = "HID";
 

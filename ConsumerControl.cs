@@ -63,6 +63,8 @@ namespace KeyboardOG
             int w = 152, h = 74, gapX = 16, gapY = 18;
             int x0 = 20, y0 = 34;
 
+            //这里存中文原文：控件是 InitializeComponent() 里建的，那时候语言还没读出来；
+            //真正翻译放在 OnPaint 里（L.T(pad.Text)），这样切换语言能立刻跟上。
             string[] names = { "静音", "音量 -", "音量 +", "播放 / 暂停", "下一曲", "上一曲" };
             for (byte i = 0; i < names.Length; i++)
             {
@@ -85,11 +87,11 @@ namespace KeyboardOG
 
             foreach (var pad in _pads)
             {
-                PickerDraw.Pad(g, pad.Rect, pad.Text, "bit" + pad.Offset,
+                PickerDraw.Pad(g, pad.Rect, L.T(pad.Text), "bit" + pad.Offset,
                                _selected.Contains(pad.Offset), true, _hover == pad.Offset, false);
             }
 
-            PickerDraw.Note(g, "多媒体映射：offset 0~5 按描述符顺序 → mediaButtons bit0~bit5",
+            PickerDraw.Note(g, L.T("多媒体映射：offset 0~5 按描述符顺序 → mediaButtons bit0~bit5"),
                 20, CanvasHeight - 40, CanvasWidth - 40);
         }
 

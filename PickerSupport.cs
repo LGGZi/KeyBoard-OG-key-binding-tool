@@ -176,10 +176,19 @@ namespace KeyboardOG
                                          Math.Max(1, rect.Width - 4),
                                          Math.Max(1, rect.Height - subH - 4));
 
+            //字号只看按键的大小，**不要按文字长短分档** ——
+            // 不然同一排里 "Mute"（4 字）用大号、"Play/Pause"（10 字）用小号，
+            // 中英文切换后字号还会跟着变，看起来参差不齐。
             Font labelFont = PadFontBig;
             if (rect.Height < 60 || rect.Width < 90) labelFont = PadFont;
             if (rect.Height < 44 || rect.Width < 62) labelFont = PadFontSmall;
-            if (text != null && text.Length > 4) labelFont = PadFontSmall;
+
+            //真的放不下才缩一档（用测量判断，而不是数字数），这样同尺寸的按键字号一致
+            if (!string.IsNullOrEmpty(text) && labelFont != PadFontSmall)
+            {
+                if (g.MeasureString(text, labelFont).Width > textRect.Width - 6)
+                    labelFont = PadFontSmall;
+            }
 
             using (var brush = new SolidBrush(fore))
             using (var fmt = new StringFormat

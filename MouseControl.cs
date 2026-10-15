@@ -84,18 +84,18 @@ namespace KeyboardOG
 
                 // 按键块裁到外壳内部，这样最外圈轮廓仍然由外壳决定。
                 g.SetClip(body, CombineMode.Intersect);
-                DrawPad(g, 0, "左键", "bit0");
-                DrawPad(g, 1, "右键", "bit1");
-                DrawPad(g, 2, "中键", "bit2");
+                DrawPad(g, 0, L.T("左键"), "bit0");
+                DrawPad(g, 1, L.T("右键"), "bit1");
+                DrawPad(g, 2, L.T("中键"), "bit2");
                 g.ResetClip();
 
                 using (var pen = new Pen(PickerPalette.Edge, 1.6f))
                     g.DrawPath(pen, body);
             }
 
-            PickerDraw.Note(g, "鼠标按键映射：offset 0/1/2 → mouseButtons bit0/1/2",
+            PickerDraw.Note(g, L.T("鼠标按键映射：offset 0/1/2 → mouseButtons bit0/1/2"),
                 15, CanvasHeight - 56, CanvasWidth - 30);
-            PickerDraw.Note(g, "（固件未实现鼠标 X/Y 轴与滚轮量映射）",
+            PickerDraw.Note(g, L.T("（固件未实现鼠标 X/Y 轴与滚轮量映射）"),
                 15, CanvasHeight - 36, CanvasWidth - 30);
         }
 

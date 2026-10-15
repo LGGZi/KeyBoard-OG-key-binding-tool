@@ -19,8 +19,11 @@ namespace KeyboardOG
         public const string FileName = "KeyboardOG.settings.ini";
 
         public const int DefaultSendRateHz = 500;
-        public const int DefaultResponseTimeoutMs = 500;
+        //等待键盘回应的默认超时。原来是 500ms，但清空/批量写入时板子要一条条处理，
+        //500ms 偶尔不够（表现就是"清空操作等很久然后报超时"），所以放宽到 1000ms。
+        public const int DefaultResponseTimeoutMs = 1000;
         public const bool DefaultWaitForFin = true;
+        public const int DefaultLanguage = 0;      //0 = 中文，1 = English
 
         /// <summary>下限 10Hz（100ms 一条），上限 2000Hz（间隔按 1ms 兜底）。</summary>
         public const int MinSendRateHz = 10;
@@ -36,6 +39,9 @@ namespace KeyboardOG
 
         /// <summary>是否等键盘回 FIN 之后再发下一条。关掉会丢指令，一般不要关。</summary>
         public bool WaitForFin = DefaultWaitForFin;
+
+        /// <summary>界面语言：0 = 中文，1 = English（存在 ini 里，下次启动沿用）。</summary>
+        public int Language = DefaultLanguage;
 
         /// <summary>批量发送时两条指令之间的最小间隔（ms），由发送频率换算。</summary>
         public int MinGapMs
@@ -55,6 +61,7 @@ namespace KeyboardOG
                 SendRateHz = SendRateHz,
                 ResponseTimeoutMs = ResponseTimeoutMs,
                 WaitForFin = WaitForFin,
+                Language = Language,
             };
         }
 
@@ -63,6 +70,7 @@ namespace KeyboardOG
             SendRateHz = DefaultSendRateHz;
             ResponseTimeoutMs = DefaultResponseTimeoutMs;
             WaitForFin = DefaultWaitForFin;
+            Language = DefaultLanguage;
         }
 
         public void Clamp()
@@ -71,13 +79,17 @@ namespace KeyboardOG
             if (SendRateHz > MaxSendRateHz) SendRateHz = MaxSendRateHz;
             if (ResponseTimeoutMs < MinTimeoutMs) ResponseTimeoutMs = MinTimeoutMs;
             if (ResponseTimeoutMs > MaxTimeoutMs) ResponseTimeoutMs = MaxTimeoutMs;
+            if (Language < 0) Language = 0;
+            if (Language > 1) Language = 1;
         }
 
         public override string ToString()
         {
-            return string.Format("{0} Hz（约 {1} ms/条）· 超时 {2} ms · {3}",
+            return L.F("{0} Hz（约 {1} ms/条）· 超时 {2} ms · {3}",
+                       "{0} Hz (~{1} ms/cmd) · timeout {2} ms · {3}",
                 SendRateHz, MinGapMs, ResponseTimeoutMs,
-                WaitForFin ? "等 FIN 再发下一条" : "不等 FIN");
+                WaitForFin ? L.T("等 FIN 再发下一条", "wait for FIN")
+                           : L.T("不等 FIN", "no FIN wait"));
         }
 
         // ------------------------------------------------------------
@@ -118,6 +130,10 @@ namespace KeyboardOG
                             case "waitforfin":
                                 s.WaitForFin = (val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase));
                                 break;
+                            case "language":
+                                if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
+                                    s.Language = n;
+                                break;
                         }
                     }
                     s.Clamp();
@@ -148,6 +164,8 @@ namespace KeyboardOG
             sb.AppendLine("SendRateHz=" + SendRateHz.ToString(CultureInfo.InvariantCulture));
             sb.AppendLine("ResponseTimeoutMs=" + ResponseTimeoutMs.ToString(CultureInfo.InvariantCulture));
             sb.AppendLine("WaitForFin=" + (WaitForFin ? "1" : "0"));
+            sb.AppendLine("# Language：界面语言，0 = 中文，1 = English");
+            sb.AppendLine("Language=" + Language.ToString(CultureInfo.InvariantCulture));
 
             //带 BOM：用记事本 / PowerShell 直接打开也不会乱码（自己读的时候 Encoding.UTF8 会跳过 BOM）
             File.WriteAllText(FilePath, sb.ToString(), new UTF8Encoding(true));

@@ -10,4 +10,3 @@ D:\DSHWorkspace\KeyboardOG\obj\Release\KeyboardOG.csproj.GenerateResource.cache
 D:\DSHWorkspace\KeyboardOG\obj\Release\KeyboardOG.csproj.CoreCompileInputs.cache
 D:\DSHWorkspace\KeyboardOG\obj\Release\KeyboardOG.exe
 D:\DSHWorkspace\KeyboardOG\obj\Release\KeyboardOG.pdb
-D:\DSHWorkspace\KeyboardOG\obj\Release\KeyboardOG.exe.config

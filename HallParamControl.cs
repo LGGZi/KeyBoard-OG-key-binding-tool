@@ -52,6 +52,8 @@ namespace KeyboardOG
         private readonly NumericUpDown[] _num = new NumericUpDown[ParamCount];
         private bool _syncInputs;                       //防止滑块和值框互相触发
         private readonly bool[] _paramDirty = new bool[DeviceLimits.KeyCount];
+        //每个按键本地改了还没写入的那一份参数值（_paramDirty[k] 为 true 时这一份才有效）
+        private readonly int[,] _paramPending = new int[DeviceLimits.KeyCount, ParamCount];
 
         // ---- ④ 写入 ----
         private readonly Button _btnWrite = new Button();
@@ -273,7 +275,7 @@ namespace KeyboardOG
                 {
                     Location = new Point(x, 22),
                     Size = new Size(ColW, 16),
-                    Text = opt.Name,
+                    Text = L.T(opt.Name),
                     Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold),
                     TextAlign = ContentAlignment.MiddleCenter,
                 };
@@ -352,9 +354,32 @@ namespace KeyboardOG
         {
             foreach (int k in EffectiveKeys())
             {
-                if (k >= 0 && k < _paramDirty.Length) _paramDirty[k] = true;
+                if (k < 0 || k >= _paramDirty.Length) continue;
+                _paramDirty[k] = true;
+                SnapshotPending(k);      //把当前四个值框里的值记到这个按键名下
             }
             RefreshBatchColors();
+            UpdatePendingTint();
+        }
+
+        /// <summary>把四个值框里现在的值记成这个按键的"本地改动"。</summary>
+        private void SnapshotPending(int key)
+        {
+            for (int i = 0; i < ParamCount; i++) _paramPending[key, i] = (int)_num[i].Value;
+        }
+
+        /// <summary>丢掉某个按键的本地改动（写入成功 / 重新读取之后）。</summary>
+        private void ClearPending(int key)
+        {
+            for (int i = 0; i < ParamCount; i++) _paramPending[key, i] = 0;
+        }
+
+        /// <summary>值框是否染成淡红：现在显示的是"本地改过还没写入"的值。</summary>
+        private void UpdatePendingTint()
+        {
+            bool on = _focusKey >= 0 && _focusKey < _paramDirty.Length && _paramDirty[_focusKey];
+            for (int i = 0; i < ParamCount; i++)
+                _num[i].BackColor = on ? Color.FromArgb(255, 236, 236) : SystemColors.Window;
         }
 
         /// <summary>这次写入实际会作用到哪些按键：勾了就是勾的那些，一个没勾就是当前按键。</summary>
@@ -419,7 +444,7 @@ namespace KeyboardOG
         private void UpdateTitle()
         {
             int shown = _selectedKeys.Count == 1 ? FocusKey : _focusKey;
-            _grp.Text = string.Format("磁轴参数 / 校准（当前 #{0}）", shown);
+            _grp.Text = L.F("磁轴参数 / 校准（当前 #{0}）", "Hall parameters / calibration (key #{0})", shown);
         }
 
         /// <summary>四个参数的当前输入值（按 BindingCatalog.Parameters 的顺序）。</summary>
@@ -441,6 +466,21 @@ namespace KeyboardOG
 
         /// <summary>勾了几个按键（用于提示文案）。</summary>
         public int BatchCount { get { return _selectedKeys.Count; } }
+
+        /// <summary>语言切换后：面板里的静态文本 + 参数名 + 标题都换一遍。</summary>
+        public void ApplyLanguage()
+        {
+            L.Apply(this);
+
+            for (int i = 0; i < ParamCount; i++)
+            {
+                var opt = BindingCatalog.Parameters[i];
+                _lblParamName[i].Text = L.T(opt.Name);
+            }
+
+            UpdateTitle();
+            RefreshBatchColors();
+        }
 
         /// <summary>按键数量变了（收到设备信息后）重建按键按钮。</summary>
         public void SetKeyCount(int count)
@@ -470,21 +510,34 @@ namespace KeyboardOG
         {
             foreach (int k in keys)
             {
-                if (k >= 0 && k < _paramDirty.Length) _paramDirty[k] = false;
+                if (k < 0 || k >= _paramDirty.Length) continue;
+                _paramDirty[k] = false;
+                ClearPending(k);        //值已经写进键盘了，本地那一份不用再留
             }
             RefreshBatchColors();
+            UpdatePendingTint();
         }
 
         /// <summary>全部按键都重新读过一遍参数了。</summary>
         public void MarkAllParamsSynced()
         {
-            for (int i = 0; i < _paramDirty.Length; i++) _paramDirty[i] = false;
+            for (int i = 0; i < _paramDirty.Length; i++)
+            {
+                _paramDirty[i] = false;
+                ClearPending(i);        //重新读了一遍参数 = 放弃本地改动
+            }
             RefreshBatchColors();
+            UpdatePendingTint();
         }
 
         /// <summary>
-        /// 显示某个按键从键盘查回来的参数值：
-        /// 每个滑块上面显示"键盘 xx"，同时把**滑块和值框都填成键盘上的值**，方便在原值上改。
+        /// 显示某个按键的参数：
+        ///   · 上面那行"键盘 xx"永远显示键盘里的真实值（方便和本地改动对比）；
+        ///   · 滑块和值框显示"这个按键现在该显示的值" ——
+        ///     该按键有本地改动就显示本地那一份（值框染淡红），否则显示键盘里的值。
+        ///
+        /// 这样切走再切回来，用户改过的值不会被键盘上的值覆盖掉，
+        /// 红色标记才有意义（一直保留到"写入参数"成功或"重新读取磁轴参数"为止）。
         /// known[i] 为 false 表示这一项还没查到。
         /// </summary>
         public void ShowCurrentValues(int[] values, bool[] known, int key)
@@ -492,6 +545,9 @@ namespace KeyboardOG
             //只更新"显示焦点"，不动 _selectedKey —— 那个是主界面当前按键，不能被这里改掉
             _focusKey = key;
             UpdateTitle();
+
+            //这个按键有没有"本地改了还没写"的一份值
+            bool hasPending = key >= 0 && key < _paramDirty.Length && _paramDirty[key];
 
             _syncInputs = true;
             try
@@ -501,21 +557,36 @@ namespace KeyboardOG
                     bool ok = known != null && i < known.Length && known[i]
                               && values != null && i < values.Length;
 
+                    // ---- 上面那行：键盘里的真实值 ----
+                    int deviceValue = 0;
                     if (ok)
                     {
-                        int v = values[i];
-                        if (v < MinV) v = MinV;
-                        if (v > MaxV) v = MaxV;
+                        deviceValue = values[i];
+                        if (deviceValue < MinV) deviceValue = MinV;
+                        if (deviceValue > MaxV) deviceValue = MaxV;
 
-                        _lblParamDevice[i].Text = string.Format("键盘 {0}", v);
+                        _lblParamDevice[i].Text = L.F("键盘 {0}", "kbd {0}", deviceValue);
                         _lblParamDevice[i].ForeColor = Color.FromArgb(30, 110, 60);
-                        _num[i].Value = v;
-                        _bar[i].Value = ValueToSlider(i, v);
                     }
                     else
                     {
-                        _lblParamDevice[i].Text = "键盘 —";
+                        _lblParamDevice[i].Text = L.T("键盘 —", "kbd —");
                         _lblParamDevice[i].ForeColor = Color.FromArgb(150, 150, 150);
+                    }
+
+                    // ---- 滑块和值框：本地改动优先 ----
+                    if (hasPending)
+                    {
+                        int v = _paramPending[key, i];
+                        if (v < MinV) v = MinV;
+                        if (v > MaxV) v = MaxV;
+                        _num[i].Value = v;
+                        _bar[i].Value = ValueToSlider(i, v);
+                    }
+                    else if (ok)
+                    {
+                        _num[i].Value = deviceValue;
+                        _bar[i].Value = ValueToSlider(i, deviceValue);
                     }
                 }
             }
@@ -523,6 +594,8 @@ namespace KeyboardOG
             {
                 _syncInputs = false;
             }
+
+            UpdatePendingTint();
         }
     }
 }

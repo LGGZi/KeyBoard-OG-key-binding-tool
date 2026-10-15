@@ -48,6 +48,13 @@ namespace KeyboardOG
         private Thread _thread;
         private volatile bool _disposed;
 
+        /// <summary>
+        /// 上一条指令是不是"没收到对得上的 FIN"（超时/错位）？
+        /// 是的话管道里可能留着它晚到的回应，下一条发之前要先清掉。
+        /// 只在出过问题时才清 —— 正常情况下管道是空的，没必要每次都去读一个超时。
+        /// </summary>
+        private volatile bool _mayHaveStaleFrames;
+
         private volatile bool _connected;
 
         public CommandLogStore Log { get; private set; }
@@ -201,9 +208,11 @@ namespace KeyboardOG
                     }
 
                     var info = (Devices != null && index >= 0 && index < Devices.Count) ? Devices[index] : default(HidNative.HidDeviceInfo);
+                    //列表里过滤后只剩指令接口了，正常情况不用再标"（指令接口）"；
+                    //万一真选到非指令接口的设备，还是要提醒一句。
                     string desc = string.Format("已打开 [{0}] VID_{1:X4}&PID_{2:X4} {3}{4}",
                         index, info.VendorId, info.ProductId, info.Name,
-                        info.IsCommandInterface != 0 ? "  (指令接口)" : "  (非指令接口，指令可能无效)");
+                        info.IsCommandInterface != 0 ? string.Empty : "  (非指令接口，指令可能无效)");
 
                     SetConnected(true, desc);
                     Log.Add(LogKind.Info, "打开设备", desc, null, LogState.Done);
@@ -216,6 +225,164 @@ namespace KeyboardOG
                 }
             });
             return tcs.Task;
+        }
+
+        /// <summary>
+        /// 快速探测某个设备是不是"真的键盘"：打开它、问一次设备信息，
+        /// 能回一帧 0xFF 开头的报文才算数。
+        ///
+        /// 为什么需要这个：触摸板之类的设备也会暴露一个
+        /// UsagePage=0xFF00 / Usage=0x01 的厂商集合，光看描述符和键盘一模一样，
+        /// 只能真的问一句才分得出来（之前下拉框里就混进过触摸板）。
+        /// 探测完会把设备关掉，不影响后面正常连接。
+        /// </summary>
+        /// <summary>
+        /// 一次把候选设备全探完（**在同一个作业里**）。
+        ///
+        /// 为什么要合成一个作业（踩过的坑）：
+        ///   Hid_SelectDevice 内部第一步就是 Hid_CloseDevice，而原生库只有**一份全局句柄**。
+        ///   先前是"每个候选设备各发一个作业"，用户在这中间点了"连接"的话，
+        ///   探测作业就会把刚打开的**已连接句柄**关掉 —— 之后每条指令都立刻失败
+        ///   （Hid_ReadResponse 直接返回 -1 "No device selected"），
+        ///   表现就是"等不到回应、而且等待时间明显不到半秒"。
+        ///   合成一个作业之后，连接要么排在它前面、要么排在它后面，队列是 FIFO，不会再交叉。
+        ///
+        /// 另外：已经连上了就直接跳过探测，绝不去碰句柄。
+        /// </summary>
+        public Task<List<int>> ProbeAllAsync(int[] indices, int timeoutMs = ProbeTimeoutMs)
+        {
+            var tcs = NewTcs<List<int>>();
+            Post(() =>
+            {
+                var alive = new List<int>();
+                try
+                {
+                    if (!_connected && indices != null)
+                    {
+                        foreach (int idx in indices)
+                        {
+                            if (ProbeOne(idx, timeoutMs)) alive.Add(idx);
+                        }
+                    }
+                }
+                catch { }
+
+                tcs.TrySetResult(alive);
+            });
+            return tcs.Task;
+        }
+
+        /// <summary>探测单个设备是不是真键盘（只允许在 HID 工作线程里调用）。</summary>
+        private bool ProbeOne(int nativeIndex, int timeoutMs)
+        {
+            bool ok = false;
+            try
+            {
+                if (HidNative.Hid_SelectDevice(nativeIndex) == 0)
+                {
+                    var req = CommandRequest.Of("QUERY/DEVICE_INFO(probe)", "探测设备信息",
+                        CommandBuilder.Query(QueryTarget.DeviceInfo, QueryMode.All, 0), timeoutMs);
+
+                    var resp = new byte[HidNative.CommandSize];
+                    if (HidNative.Hid_SendCommand(req.Payload) == 0)
+                    {
+                        // 一条指令回两帧：先 ACK，再设备信息（设备信息后面没有 FIN）。
+                        // 读到 0xFF 那一帧才算真键盘。
+                        for (int i = 0; i < 3; i++)
+                        {
+                            if (HidNative.Hid_ReadResponse(resp, timeoutMs) != 0) break;
+                            if (resp[0] == DeviceInfo.FrameId) { ok = true; break; }
+                        }
+                    }
+
+                    DrainInput();   //问完清一下，别把晚到的报文留给下一条指令
+                    HidNative.Hid_CloseDevice();
+                }
+            }
+            catch { ok = false; }
+
+            if (!ok) Log.Add(LogKind.Info, "探测", "这个设备没有回应设备信息查询（不是键盘）", null, LogState.Timeout);
+            return ok;
+        }
+
+        public Task<bool> ProbeDeviceInfoAsync(int nativeIndex, int timeoutMs = ProbeTimeoutMs)
+        {
+            var tcs = NewTcs<bool>();
+            Post(() =>
+            {
+                //已连接时不要动句柄（Hid_SelectDevice 会先关掉当前设备）
+                bool ok = !_connected && ProbeOne(nativeIndex, timeoutMs);
+                tcs.TrySetResult(ok);
+            });
+            return tcs.Task;
+        }
+
+        /// <summary>
+        /// 探活：当前连着的设备还在不在？发一条设备信息查询，超时没回应就当掉线。
+        ///
+        /// 为什么不用"重新枚举"来判断：Hid_EnumerateDevices 会把已打开的设备先关掉
+        /// （原生库的行为），一插拔就会把正常连接也弄断。发一条查询没这个副作用。
+        /// </summary>
+        public Task<bool> PingAsync(int timeoutMs = PingTimeoutMs)
+        {
+            var tcs = NewTcs<bool>();
+            Post(() =>
+            {
+                bool alive = false;
+                try
+                {
+                    if (!_connected) { tcs.TrySetResult(false); return; }
+
+                    var req = CommandRequest.Of("QUERY/DEVICE_INFO(ping)", "连接自检",
+                        CommandBuilder.Query(QueryTarget.DeviceInfo, QueryMode.All, 0), timeoutMs);
+                    var resp = new byte[HidNative.CommandSize];
+
+                    if (HidNative.Hid_SendCommand(req.Payload) == 0)
+                    {
+                        // 键盘对一条指令是"先 ACK 再设备信息"，而且设备信息后面**没有 FIN**，
+                        // 所以不能只读一帧（读到 ACK 就以为不是键盘，真键盘会被筛掉）。
+                        // 这里最多读 3 帧，直到看见 0xFF 开头那一帧。
+                        for (int i = 0; i < 3; i++)
+                        {
+                            if (HidNative.Hid_ReadResponse(resp, timeoutMs) != 0) break;
+                            if (resp[0] == DeviceInfo.FrameId) { alive = true; break; }
+                        }
+
+                        DrainInput();   //同上：探完清管道
+                    }
+                }
+                catch { alive = false; }
+
+                tcs.TrySetResult(alive);
+            });
+            return tcs.Task;
+        }
+
+        // ============================================================
+        //  探测 / 探活的等待时间
+        //
+        //  这两个动作只是"问一句看有没有人应"，但等待时间不能短：
+        //  板子上如果开着 DEBUG，Serial.print 在没有串口监视器时每次最多阻塞 250ms，
+        //  ACK 可能要等好几百毫秒才出来。之前写 300/400ms，慢一点的板子就被判成
+        //  "不是键盘"或者"已掉线"（表现就是收发异常 / 莫名其妙断开）。
+        // ============================================================
+        private const int ProbeTimeoutMs = 1500;
+        private const int PingTimeoutMs = 1500;
+
+        /// <summary>
+        /// 把设备里还没读走的报文丢干净。
+        ///
+        /// 探测/探活用的是"读几帧就停"的策略，万一设备的回应晚到，
+        /// 残留的报文会被**下一条指令**当成自己的 ACK/FIN（"回应对不上"的一个来源），
+        /// 所以每次问完都清一下。每帧只等很短的时间，不会拖慢流程。
+        /// </summary>
+        private static void DrainInput(int perFrameTimeoutMs = 15)
+        {
+            var junk = new byte[HidNative.CommandSize];
+            for (int i = 0; i < 4; i++)
+            {
+                if (HidNative.Hid_ReadResponse(junk, perFrameTimeoutMs) != 0) break;
+            }
         }
 
         /// <summary>尝试按 VID/PID 自动选择指令接口。</summary>
@@ -452,6 +619,16 @@ namespace KeyboardOG
         {
             var entry = Log.Add(LogKind.Tx, req.Name, req.Detail, req.Payload, LogState.Pending);
 
+            // 上一条如果超时了，它的 ACK/FIN 可能过一会儿才到；不清掉的话，
+            // 本条指令会读到**上一条的**回应，序号对不上（"回应错位"就是这么来的）。
+            // 注意只在"上一条出过问题"时才清：正常情况管道是空的，
+            // 每次都去读一个超时会白白走一遍原生库的取消分支。
+            if (_mayHaveStaleFrames)
+            {
+                DrainInput();
+                _mayHaveStaleFrames = false;
+            }
+
             if (HidNative.Hid_SendCommand(req.Payload) != 0)
             {
                 Log.Complete(entry, LogState.Failed, "发送失败: " + HidNative.LastError);
@@ -482,12 +659,16 @@ namespace KeyboardOG
                 var kind = ResponseParser.KindOf(resp);
 
                 //配对校验：ACK / FIN 都是回应我们这条指令的，序号必须对得上。
-                //对不上说明管道里有残留（发太快、上一条的回应没被读走），要报出来而不是当成成功。
+                //对不上的帧**不立刻判失败**：它很可能是上一条（超时那条）晚到的回应，
+                //而本条指令真正的回应还在后面 —— 继续读到 deadline 为止。
+                bool paired = true;                  //数据帧（查询结果）不参与配对
                 if (kind == ResponseKind.Ack || kind == ResponseKind.Fin)
                 {
-                    if (MatchesRequest(req.Payload, resp, kind))
+                    paired = MatchesRequest(req.Payload, resp, kind);
+                    if (paired)
                     {
                         outcome.Matched = true;
+                        outcome.Mismatch = null;     //后面收到对得上的帧，之前的错位就不算数了
                     }
                     else
                     {
@@ -503,7 +684,9 @@ namespace KeyboardOG
                 }
                 firstFrame = false;
 
-                if (kind == ResponseKind.Fin)
+                //只有"对得上"的 FIN 才算本条指令的 FIN
+                //（残留的 FIN 如果也算，就会提前认为成功/提前收手）
+                if (kind == ResponseKind.Fin && paired)
                 {
                     outcome.SawFin = true;
                     outcome.LastFinKey = ResponseParser.FinKey(resp);
@@ -518,8 +701,8 @@ namespace KeyboardOG
                 //只有"最后那个 FIN"才结束收取：
                 //全部按键校准时下位机会每个键回一个 FIN，收到第一个不能就收手
                 bool last = isFinalFrame != null
-                    ? isFinalFrame(resp)
-                    : kind == ResponseKind.Fin;
+                    ? (paired && isFinalFrame(resp))
+                    : (kind == ResponseKind.Fin && paired);
                 if (last) break;
             }
 
@@ -531,8 +714,11 @@ namespace KeyboardOG
             else
                 done = string.Format("等待 {0} ms 没有收到 FIN，已收到 {1} 条数据", overallTimeoutMs, outcome.ItemCount);
 
-            Log.Complete(entry,
-                outcome.SawFin && outcome.Mismatch == null ? LogState.Done : LogState.Timeout, done);
+            bool clean = outcome.SawFin && outcome.Mismatch == null;
+            if (!clean) _mayHaveStaleFrames = true;      //这条没干净收尾，下一条发之前先清管道
+            else _mayHaveStaleFrames = false;
+
+            Log.Complete(entry, clean ? LogState.Done : LogState.Timeout, done);
         }
 
         /// <summary>排入一条指令（不等待）。</summary>

@@ -102,6 +102,14 @@ namespace KeyboardOG
             _timer.Start();
         }
 
+        /// <summary>语言切换后：窗口自己的文本 + 表格内容 + 汇总条都换一遍。</summary>
+        public void ApplyLanguage()
+        {
+            L.Apply(this);
+            if (_view != null) _view.Reload();
+            UpdateSummary();
+        }
+
         public void Attach(CommandLogStore store)
         {
             _store = store;
@@ -121,10 +129,10 @@ namespace KeyboardOG
             int failed = all.Count(e => e.Kind == LogKind.Tx && e.State == LogState.Failed);
 
             _lblSummary.Text = string.Format(
-                "共 {0} 条   ·   发送 {1}   接收确认 {2}   已完成 {3}   超时 {4}   失败 {5}",
+                "{0} entries · sent {1}  ack {2}  done {3}  timeout {4}  failed {5}",
                 all.Count, tx, rx, done, timeout, failed);
 
-            Text = string.Format("指令日志 - KeyboardOG   （发送 {0} / 接收 {1}）", tx, rx);
+            Text = string.Format("Command log - KeyboardOG   (sent {0} / received {1})", tx, rx);
         }
 
         /// <summary>挑一个肯定能写的地方当默认目录（exe 可能在 Program Files 里，没写权限）。</summary>

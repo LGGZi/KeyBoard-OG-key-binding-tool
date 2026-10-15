@@ -127,6 +127,17 @@ namespace KeyboardOG
             _list.EnsureVisible(_list.Items.Count - 1);
         }
 
+        /// <summary>语言切换后把整张表按新语言重画一遍。</summary>
+        public void Reload()
+        {
+            if (_store == null) return;
+            _items.Clear();
+            _list.BeginUpdate();
+            _list.Items.Clear();
+            foreach (var entry in _store.Snapshot()) AddItem(entry);
+            _list.EndUpdate();
+        }
+
         private void AddItem(LogEntry e)
         {
             var item = new ListViewItem(new string[7]);
@@ -141,15 +152,15 @@ namespace KeyboardOG
             // 固定 7 列，按下标刷新（不要用 SubItems.Clear()，item 在 ListView 里时它会破坏列结构）
             while (item.SubItems.Count < 7) item.SubItems.Add(string.Empty);
 
-            string detail = e.Detail;
+            string detail = L.T(e.Detail);
             if (!string.IsNullOrEmpty(e.Result) && e.State != LogState.Pending)
-                detail = detail + "  →  " + e.Result;
+                detail = detail + "  →  " + L.T(e.Result);
 
             item.SubItems[0].Text = e.Id.ToString();
             item.SubItems[1].Text = e.TimeText;
-            item.SubItems[2].Text = LogText.Kind(e.Kind);
-            item.SubItems[3].Text = LogText.State(e.State);
-            item.SubItems[4].Text = e.Command;
+            item.SubItems[2].Text = L.T(LogText.Kind(e.Kind));
+            item.SubItems[3].Text = L.T(LogText.State(e.State));
+            item.SubItems[4].Text = L.T(e.Command);
             item.SubItems[5].Text = detail;
             item.SubItems[6].Text = e.PayloadHex;
 
@@ -184,10 +195,10 @@ namespace KeyboardOG
                 if (e == null) continue;
                 sb.Append(e.Id).Append(',')
                   .Append(Csv(e.TimeText)).Append(',')
-                  .Append(Csv(LogText.Kind(e.Kind))).Append(',')
-                  .Append(Csv(LogText.State(e.State))).Append(',')
-                  .Append(Csv(e.Command)).Append(',')
-                  .Append(Csv(e.Detail + (string.IsNullOrEmpty(e.Result) ? "" : " -> " + e.Result))).Append(',')
+                  .Append(Csv(L.T(LogText.Kind(e.Kind)))).Append(',')
+                  .Append(Csv(L.T(LogText.State(e.State)))).Append(',')
+                  .Append(Csv(L.T(e.Command))).Append(',')
+                  .Append(Csv(L.T(e.Detail) + (string.IsNullOrEmpty(e.Result) ? "" : " -> " + L.T(e.Result)))).Append(',')
                   .Append(Csv(e.PayloadHex)).AppendLine();
             }
 
