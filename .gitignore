@@ -1,0 +1,25 @@
+# build output
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.cache
+
+# generated local settings (machine specific)
+KeyboardOG.settings.ini
+
+# SIGNING KEYS - never commit private keys to a public repository
+*.pfx
+*.pvk
+*.snk
+*.key
+
+# temporary files / reports
+tools/localization-report.txt
+*.log
+*.crash.log
