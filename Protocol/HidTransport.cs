@@ -696,7 +696,10 @@ namespace KeyboardOG
                 _mayHaveStaleFrames = false;
             }
 
-            if (HidNative.Hid_SendCommand(req.Payload) != 0)
+            int sendStart = Environment.TickCount;
+            int sendRc = HidNative.Hid_SendCommand(req.Payload);
+            int sendMs = Environment.TickCount - sendStart;
+            if (sendRc != 0)
             {
                 Log.Complete(entry, LogState.Failed, "发送失败: " + HidNative.LastError);
                 return;
@@ -800,9 +803,10 @@ namespace KeyboardOG
                 done = "⚠ " + outcome.Mismatch + "（常见原因：发太快 / 上一条的回应没读走）";
             else if (Environment.TickCount - startedAt >= overallTimeoutMs - 50
                      || IsSliceTimeout(HidNative.LastError))
-                done = L.F("等待 {0} ms 没有收到回应（重试 {1} 次），已收到 {2} 条数据",
-                           "No reply after {0} ms ({1} retries), {2} frames received",
-                           overallTimeoutMs, readRetries, outcome.ItemCount);
+                done = L.F("等待 {0} ms 没有收到回应（重试 {1} 次，用时 {2} ms，发送 {3} ms，已收到 {4} 条）",
+                           "No reply after {0} ms ({1} retries, {2} ms spent, send took {3} ms, {4} frames)",
+                           overallTimeoutMs, readRetries, Environment.TickCount - startedAt, sendMs,
+                           outcome.ItemCount);
             else
                 done = L.F("读取回应失败（{0}），实际等了 {1} ms / 配置 {2} ms（重试 {3} 次），已收到 {4} 条数据",
                            "Read failed ({0}) after {1} ms of {2} ms ({3} retries), {4} frames received",
