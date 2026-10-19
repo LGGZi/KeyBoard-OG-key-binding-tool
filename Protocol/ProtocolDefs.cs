@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -100,6 +100,8 @@ namespace KeyboardOG
         Mapping     = 0x00,
         Parameter   = 0x01,
         Calibration = 0x02,
+        /// <summary>按键布局（固件逐键回 0xFE 帧，最后回 FIN）。</summary>
+        Layout      = 0xFE,
         /// <summary>设备信息（固件 HIDDeviceInfoUpload）—— 回一帧就没有了，没有 FIN。</summary>
         DeviceInfo  = 0xFF,
     }
@@ -232,6 +234,7 @@ namespace KeyboardOG
         MapItem,
         ParamItem,
         DeviceInfo,
+        LayoutItem,
     }
 
     /// <summary>
@@ -272,7 +275,19 @@ namespace KeyboardOG
         /// <summary>[7]：固件版本号（2|3|3 位切分，见 VersionInfo.cs）。</summary>
         public FirmwareVersion Firmware;
 
-        /// <summary>保留的三位，先存着备用（Layout 识别）。</summary>
+        /// <summary>[5] 布局类型：0x00 旧设备（不上传布局）、0xFF 自定义布局。</summary>
+        public byte LayoutKind;
+
+        /// <summary>旧固件：没有布局信息，按固定网格显示。</summary>
+        public const byte LayoutKindLegacy = 0x00;
+
+        /// <summary>自定义布局：连接后按 QUERY_LAYOUT 读取按键位置。</summary>
+        public const byte LayoutKindCustom = 0xFF;
+
+        /// <summary>是否会上传布局。</summary>
+        public bool HasCustomLayout { get { return LayoutKind == LayoutKindCustom; } }
+
+        /// <summary>保留的三位，先存着备用。</summary>
         public byte[] Reserved = new byte[3];
 
         /// <summary>整帧原样留一份。</summary>
@@ -288,6 +303,7 @@ namespace KeyboardOG
             info.HasHallSensor = (r[2] == HallYes);
             info.EncoderCount  = r[3];
             info.DeviceType    = r[4];
+            info.LayoutKind    = r[5];
             info.Reserved[0]   = r[5];
             info.Reserved[1]   = r[6];
             info.Reserved[2]   = r[7];
@@ -301,8 +317,51 @@ namespace KeyboardOG
             string hall = HasHallSensor ? "磁轴"
                         : (HallByte == HallNo ? "非磁轴" : string.Format("未知(0x{0:X2})", HallByte));
 
-            return string.Format("{0} 键 · {1} · 编码器 {2} 个 · 设备类型 0x{3:X2}",
-                KeyCount, hall, EncoderCount, DeviceType);
+            string layout = HasCustomLayout ? L.T("自定义布局", "custom layout")
+                          : (LayoutKind == LayoutKindLegacy ? L.T("旧设备", "legacy device")
+                                                            : L.F("布局 0x{0:X2}", "layout 0x{0:X2}", LayoutKind));
+
+            return L.F("{0} 键 · {1} · 编码器 {2} 个 · 设备类型 0x{3:X2} · {4}",
+                       "{0} keys · {1} · {2} encoder(s) · device type 0x{3:X2} · {4}",
+                       KeyCount, hall, EncoderCount, DeviceType, layout);
+        }
+    }
+
+    /// <summary>
+    /// 单键布局帧（固件 0xFE）：一条 8 字节 = 一个按键。
+    ///
+    ///   [0] 0xFE  [1] 按键索引  [2] x  [3] y  [4] w  [5] h  [6] flags  [7] 序号
+    ///
+    /// 坐标单位 0.25u（4 = 1u），左上角为原点，x 向右、y 向下。
+    /// flags：bit7|bit6 = 11 表示该键需要旋转（旋转数据二期用 0xFD 帧）；
+    ///        bit5..bit0 为按键类型（0 普通 / 1 修饰 / 2 编码器 / 3 装饰）。
+    /// </summary>
+    public sealed class KeyLayoutItem
+    {
+        public const byte FrameId = 0xFE;
+
+        /// <summary>每 1u 对应的坐标单位数（0.25u 一个单位）。</summary>
+        public const int UnitsPerU = 4;
+
+        public int Index;
+        public int X, Y, W, H;
+        public byte Flags;
+
+        public bool NeedsRotation { get { return (Flags & 0xC0) == 0xC0; } }
+        public int KeyType { get { return Flags & 0x3F; } }
+
+        public float UnitsX { get { return X / (float)UnitsPerU; } }
+        public float UnitsY { get { return Y / (float)UnitsPerU; } }
+        public float UnitsW { get { return W / (float)UnitsPerU; } }
+        public float UnitsH { get { return H / (float)UnitsPerU; } }
+
+        public static KeyLayoutItem FromFrame(byte[] r)
+        {
+            if (r == null || r.Length < 8 || r[0] != FrameId) return null;
+            return new KeyLayoutItem
+            {
+                Index = r[1], X = r[2], Y = r[3], W = r[4], H = r[5], Flags = r[6],
+            };
         }
     }
 
@@ -312,6 +371,7 @@ namespace KeyboardOG
         {
             if (r == null || r.Length < 8) return ResponseKind.Unknown;
             if (r[0] == DeviceInfo.FrameId) return ResponseKind.DeviceInfo;
+            if (r[0] == KeyLayoutItem.FrameId) return ResponseKind.LayoutItem;
 
             switch ((HidCmd)r[0])
             {
@@ -346,6 +406,8 @@ namespace KeyboardOG
         public static byte MapKey(byte[] r) { return r[2]; }
         public static byte MapOffset(byte[] r) { return r[3]; }
         public static byte MapSlot(byte[] r) { return r[5]; }
+
+        public static int LayoutIndex(byte[] r) { return r[1]; }
 
         public static KeyParameter ParamCode(byte[] r) { return (KeyParameter)r[1]; }
         public static byte ParamKey(byte[] r) { return r[2]; }
@@ -531,6 +593,32 @@ namespace KeyboardOG
             var hit = Options(device).FirstOrDefault(o => o.Offset == picker);
             if (hit != null) return string.Format("{0} {1}", DeviceName(device), hit.Name);
             return string.Format("{0} offset 0x{1:X2}", DeviceName(device), wireOffset);
+        }
+
+        /// <summary>
+        /// 键帽上用的短文本：键盘只留按键名（A / F1 / 空格），
+        /// 其它设备保留“设备 名称”（鼠标 左键），太长会由绘制方省略。
+        /// </summary>
+        public static string ShortText(Binding b)
+        {
+            if (b == null) return string.Empty;
+            string full = Describe(b.Device, b.Offset);
+            string dev = DeviceName(b.Device);
+            if (b.Device == MapDevice.Keyboard && full.StartsWith(dev + " ", StringComparison.Ordinal))
+                return full.Substring(dev.Length + 1);
+            return full;
+        }
+
+        /// <summary>
+        /// 键帽专用的最短文本：只留按键名（A、F1、左键、右键），
+        /// 用于「A+B」这种两条映射并排显示，避免被设备名挤掉。
+        /// </summary>
+        public static string CapText(Binding b)
+        {
+            if (b == null) return string.Empty;
+            byte picker = ToPickerOffset(b.Device, b.Offset);
+            var hit = Options(b.Device).FirstOrDefault(o => o.Offset == picker);
+            return hit != null ? hit.Name : Describe(b.Device, b.Offset);
         }
 
         /// <summary>描述一个映射，用于日志和列表显示。</summary>

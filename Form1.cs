@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -60,6 +60,13 @@ namespace KeyboardOG
         /// 只改个别槽就只发那几条。null 表示"还没同步过，不知道键盘上是什么"。
         /// </summary>
         private readonly Binding[][] _deviceState = new Binding[DeviceLimits.KeyCount][];
+
+        // ---- 布局（固件上传的配列）----
+        private KeyLayout _layout;
+        private LayoutPanel _layoutPanel;      //放在左侧「选择要修改的按键」原来的按钮区
+        private KeyLayoutForm _layoutWindow;   //独立窗口（按需打开）
+        private Button btnLayoutWindow;
+        private bool _autoWindowShown;
 
         /// <summary>"清空全部按键映射"要点两次才生效，这个记第一次点过了。</summary>
         private bool _clearAllArmed;
@@ -128,6 +135,7 @@ namespace KeyboardOG
             _logForm.Attach(_log);
 
             BuildKeyButtons();
+            BuildLayoutPanelIntoKeyGroup();
             InitPickers();
             WireEvents();
 
@@ -183,6 +191,270 @@ namespace KeyboardOG
             }
 
             flpKeys.ResumeLayout();
+        }
+
+        /// <summary>
+        /// 把布局面板放进左侧「1. 选择要修改的按键」原来的按钮区域：
+        ///   · 新固件：显示真实配列，点键 = 选键，双击 = 打开独立窗口
+        ///   · 旧固件 / 布局读取失败：隐藏面板，回退到原来的序号按钮
+        /// 布局面板变高以后，下面的映射列表压缩成固定 12 行（超出滚动）。
+        /// </summary>
+        private void BuildLayoutPanelIntoKeyGroup()
+        {
+            grpKey.Height = 300;
+
+            _layoutPanel = new LayoutPanel();
+            _layoutPanel.Location = new Point(8, 22);
+            _layoutPanel.Size = new Size(grpKey.Width - 16, grpKey.Height - 22 - 56);
+            _layoutPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            _layoutPanel.KeySelected += i => SelectKey(i);
+            _layoutPanel.KeyDoubleClicked += i => ShowLayoutWindow();
+            grpKey.Controls.Add(_layoutPanel);
+            _layoutPanel.BringToFront();
+
+            lblKeyHint.Location = new Point(8, grpKey.Height - 50);
+            lblKeyHint.Size = new Size(grpKey.Width - 120, 20);
+            lblKeyHint.Text = L.T("蓝底 = 选中　绿字 = 一致　红字 = 有改动",
+                                  "Blue = selected  green = match  red = edited");
+
+            lblKeyReserved.Location = new Point(8, grpKey.Height - 26);
+            lblKeyReserved.Size = new Size(grpKey.Width - 16, 20);
+            lblKeyReserved.Text = L.T("尚未读取布局", "Layout not loaded");
+
+            btnLayoutWindow = new Button();
+            btnLayoutWindow.Text = L.T("独立窗口…", "Window…");
+            btnLayoutWindow.Size = new Size(102, 26);
+            btnLayoutWindow.Location = new Point(grpKey.Width - 110, grpKey.Height - 52);
+            btnLayoutWindow.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnLayoutWindow.Click += (s, e) => ShowLayoutWindow();
+            _layoutPanel.DoubleClick += (s, e) => ShowLayoutWindow();
+            grpKey.Controls.Add(btnLayoutWindow);
+
+            //默认保持原来的序号按钮；只有真的读到布局才切换成配列面板
+            ShowLayoutPanel(false);
+        }
+
+        /// <summary>显示 / 隐藏布局面板与序号按钮（两者互斥）。</summary>
+        private void ShowLayoutPanel(bool show)
+        {
+            if (_layoutPanel != null) _layoutPanel.Visible = show;
+            flpKeys.Visible = !show;
+
+            //有布局就给“独立窗口”入口（配列太大被放到窗口里时也要能再打开）
+            if (btnLayoutWindow != null) btnLayoutWindow.Visible = (_layout != null);
+
+            if (show)
+            {
+                grpKey.Height = 300;
+                lblKeyHint.Location = new Point(8, grpKey.Height - 50);
+                lblKeyHint.Size = new Size(grpKey.Width - 120, 20);
+                lblKeyReserved.Location = new Point(8, grpKey.Height - 26);
+                if (btnLayoutWindow != null)
+                    btnLayoutWindow.Location = new Point(grpKey.Width - 110, grpKey.Height - 52);
+                SetSlotDocking();
+            }
+            else
+            {
+                //旧固件：恢复成原来的紧凑布局（按钮区 152 高、列表拉高）
+                grpKey.Height = 152;
+                lblKeyHint.Location = new Point(8, 104);
+                lblKeyHint.Size = new Size(342, 20);
+                lblKeyReserved.Location = new Point(8, 126);
+                if (btnLayoutWindow != null)
+                    btnLayoutWindow.Location = new Point(grpKey.Width - 110, 102);
+                SetSlotDocking();
+            }
+        }
+
+        /// <summary>把当前布局、颜色、键帽文字刷到某个布局面板上（主界面与独立窗口共用）。</summary>
+        private void ApplyLayoutToPanel(LayoutPanel panel)
+        {
+            if (panel == null) return;
+            panel.SetKeyCount(_keyCount);
+            if (_layout != null) panel.SetLayout(_layout);
+            else panel.SetEmpty(L.T("无布局信息", "No layout"));
+
+            for (int i = 0; i < _keyCount && i < DeviceLimits.KeyCount; i++)
+            {
+                panel.SetKeyState(i, _keyDirty[i], i == _currentKey);
+                panel.SetKeyText(i, KeySummary(i));
+            }
+        }
+
+        private void SyncLayoutPanels()
+        {
+            //先灌数据再算尺寸：面板要拿到 Layout 才能算出内容大小
+            ApplyLayoutToPanel(_layoutPanel);
+            FitLayoutPanel();
+            if (_layoutWindow != null && !_layoutWindow.IsDisposed) ApplyLayoutToPanel(_layoutWindow.Panel);
+        }
+
+        /// <summary>
+        /// 按配列比例算出面板应有的尺寸（1u 最多 44px，接近右侧选键控件的键帽大小），
+        /// 再把左侧键区的高度收到刚好装下它 —— 小配列不会留下大片空白，映射列表也能多占点地方。
+        /// </summary>
+        private void FitLayoutPanel()
+        {
+            if (_layout == null || _layoutPanel == null) return;
+
+            int availW = Math.Max(160, grpKey.Width - 16);
+            _layoutPanel.MaxPixelsPerUnit = 0;       //不设上限，按宽度铺满
+
+            //按宽度铺满，算出实际高度，判断是不是超过左侧框的一半
+            float ppu = (availW - 24f) / _layout.WidthU;
+            if (ppu > 120f) ppu = 120f;
+            float wantedH = _layout.HeightU * ppu + 24f;
+
+            //左侧还要留给映射列表：布局连提示行最多占 72%，再高就放到独立窗口
+            int keyAreaMax = (int)(panelLeft.ClientSize.Height * 0.72) - 78;
+            bool tooTall = wantedH > keyAreaMax;
+            bool tooSmall = ppu < 26f;               //太窄的配列挤在左侧也看不清
+
+            if (tooTall || tooSmall)
+            {
+                //太大：左侧不挤，直接用独立窗口显示
+                ShowLayoutPanel(false);
+                if (lblKeyReserved != null)
+                    lblKeyReserved.Text = L.T("配列较大，已改用独立窗口显示",
+                                              "Large layout: shown in a separate window");
+                if (!_autoWindowShown)
+                {
+                    _autoWindowShown = true;
+                    ShowLayoutWindow(false);         //不抢焦点
+                }
+                return;
+            }
+
+            ShowLayoutPanel(true);
+            _layoutPanel.Size = new Size((int)Math.Ceiling(_layout.WidthU * ppu) + 24,
+                                         (int)Math.Ceiling(_layout.HeightU * ppu) + 24);
+
+            //水平居中（左右留白一样宽）
+            int left = (grpKey.ClientSize.Width - _layoutPanel.Width) / 2;
+            if (left < 8) left = 8;
+            _layoutPanel.Location = new Point(left, 22);
+
+            int height = _layoutPanel.Location.Y + _layoutPanel.Height + 56;
+            if (height < 190) height = 190;
+            grpKey.Height = height;
+
+            lblKeyHint.Location = new Point(8, grpKey.Height - 50);
+            lblKeyHint.Size = new Size(grpKey.Width - 120, 20);
+            lblKeyReserved.Location = new Point(8, grpKey.Height - 26);
+            lblKeyReserved.Size = new Size(grpKey.Width - 16, 20);
+            if (btnLayoutWindow != null)
+                btnLayoutWindow.Location = new Point(grpKey.Width - 110, grpKey.Height - 52);
+
+            SetSlotDocking();
+        }
+
+        /// <summary>映射列表向下贴到底部的按钮条（列表底部紧挨“上移/下移/删除/重新读取”）。</summary>
+        /// <summary>
+        /// 映射列表改为“向下填满、贴着下面的按钮条”：
+        ///   title(Top) / 列表(Fill) / 映射操作(Bottom) / 重新读取(Bottom)
+        /// 停靠顺序按 z-order 调整好，列表高度由布局自动算，不用再手算像素。
+        /// </summary>
+        private void SetSlotDocking()
+        {
+            if (lvBindings == null || grpSlots == null) return;
+
+            lvBindings.Dock = DockStyle.Fill;
+            panelBindBtns.Dock = DockStyle.Bottom;
+            panelSync.Dock = DockStyle.Bottom;
+
+            grpSlots.Controls.SetChildIndex(lvBindings, 0);
+            grpSlots.Controls.SetChildIndex(panelBindBtns, 1);
+            grpSlots.Controls.SetChildIndex(panelSync, 2);
+            grpSlots.Controls.SetChildIndex(panelSlotTitle, 3);
+        }
+
+        /// <summary>
+        /// 键帽上显示的内容：
+        ///   0 条映射 -> 空（只显示左上角编号）
+        ///   1 条     -> 直接显示这条映射（键盘只留按键名）
+        ///   2 条     -> 「A+B」
+        ///   3 条以上 -> 「...」
+        /// </summary>
+        private string KeySummary(int key)
+        {
+            var list = _model[key];
+            int n = list.Count;
+            if (n <= 0) return string.Empty;
+            if (n == 1) return BindingCatalog.ShortText(list[0]);
+            if (n == 2) return BindingCatalog.CapText(list[0]) + "+" + BindingCatalog.CapText(list[1]);
+            return "...";
+        }
+
+        /// <summary>打开（或激活）独立布局窗口：不记忆位置、不置顶，关闭即释放。</summary>
+        private void ShowLayoutWindow(bool activate = true)
+        {
+            if (_layout == null)
+            {
+                SetStatus(L.T("还没有读到布局（旧固件或未连接），独立窗口暂时没有内容。",
+                              "No layout yet (legacy firmware or not connected)."));
+                return;
+            }
+
+            if (_layoutWindow == null || _layoutWindow.IsDisposed)
+            {
+                _layoutWindow = new KeyLayoutForm();
+                _layoutWindow.KeyClicked += SelectKey;
+                _layoutWindow.FormClosed += (s, e) => _layoutWindow = null;
+            }
+
+            ApplyLayoutToPanel(_layoutWindow.Panel);
+            _layoutWindow.FitToContent();
+            _layoutWindow.Show();
+            if (activate) _layoutWindow.Activate();
+        }
+
+        /// <summary>
+        /// 读取并应用按键布局（连接后自动跑一次）。
+        /// 旧固件（layoutKind=0x00）不查询，直接回退固定网格；
+        /// 查询失败 / 校验不过同样回退，只记日志、不阻塞后续同步。
+        /// </summary>
+        private async Task LoadLayoutAsync()
+        {
+            if (!_transport.IsConnected) return;
+
+            if (_deviceInfo == null || !_deviceInfo.HasCustomLayout)
+            {
+                _layout = null;
+                ShowLayoutPanel(false);
+                if (lblKeyReserved != null) lblKeyReserved.Text = L.T("旧设备 · 固定网格", "Legacy · fixed grid");
+                if (_layoutPanel != null) _layoutPanel.SetEmpty(L.T("旧固件没有布局信息，使用固定网格",
+                                                                    "Legacy firmware: no layout, fixed grid"));
+                _log.Add(LogKind.Info, L.T("布局", "Layout"),
+                    L.T("设备未提供布局（layoutKind=0x00），使用固定按键网格。",
+                        "The device reports no layout (layoutKind=0x00); using the fixed grid."), null, LogState.None);
+                return;
+            }
+
+            SetStatus(L.T("正在读取按键布局…", "Reading key layout…"));
+            var outcome = await _transport.QueryLayoutAsync(_keyCount, 2500);
+
+            string error;
+            var layout = KeyLayout.FromFrames(outcome == null ? null : outcome.Frames, _keyCount, out error);
+
+            if (layout == null || !layout.Valid)
+            {
+                _layout = null;
+                ShowLayoutPanel(false);
+                if (lblKeyReserved != null) lblKeyReserved.Text = L.T("布局读取失败", "Layout read failed");
+                if (_layoutPanel != null) _layoutPanel.SetEmpty(L.T("布局读取失败，使用固定网格", "Layout read failed, fixed grid"));
+                _log.Add(LogKind.Error, L.T("布局", "Layout"),
+                    L.F("读取布局失败：{0}", "Failed to read the layout: {0}", error ?? L.T("未知原因", "unknown")), null, LogState.Failed);
+                SetStatus(L.T("布局读取失败，已回退到固定网格：", "Layout read failed, fell back to fixed grid: ") + (error ?? ""));
+                return;
+            }
+
+            _layout = layout;
+            _autoWindowShown = false;
+            ShowLayoutPanel(true);
+            if (lblKeyReserved != null) lblKeyReserved.Text = layout.ToString();
+            SyncLayoutPanels();
+            _log.Add(LogKind.Info, L.T("布局", "Layout"), L.F("布局：{0}", "Layout: {0}", layout), null, LogState.Done);
+            SetStatus(L.T("已读取布局：", "Layout: ") + layout);
         }
 
         /// <summary>递归把界面里所有 Label 的助记符解析关掉，保证 '&' 原样显示。</summary>
@@ -526,6 +798,15 @@ namespace KeyboardOG
                 ? Color.FromArgb(30, 150, 70)
                 : Color.FromArgb(200, 40, 40);
 
+            if (!connected)
+            {
+                _layout = null;
+                ShowLayoutPanel(false);
+                if (lblKeyReserved != null) lblKeyReserved.Text = L.T("尚未读取布局", "Layout not loaded");
+                if (_layoutWindow != null && !_layoutWindow.IsDisposed)
+                    _layoutWindow.Panel.SetEmpty(L.T("设备未连接", "Not connected"));
+            }
+
             btnWriteAll.Text = L.F("写入全部按键映射（0 ~ {0}）", "Write all keys (0 ~ {0})", _keyCount - 1);
             UpdateActionButtons();
             FullRepaint();          //布局可能刚变过（按键数/面板显隐），补一次重画
@@ -719,6 +1000,9 @@ namespace KeyboardOG
                 b.FlatAppearance.BorderColor = sel ? Color.FromArgb(30, 70, 150) : Color.FromArgb(170, 170, 170);
                 b.FlatAppearance.BorderSize = sel ? 2 : 1;
             }
+
+            //布局面板（主界面 + 独立窗口）用同一套颜色与键帽文字
+            SyncLayoutPanels();
         }
 
         private int SelectedSlot()
@@ -1082,6 +1366,10 @@ namespace KeyboardOG
 
                 ApplyDeviceInfo(infoOutcome);
 
+                // ---- 0.5 按键布局（只有新固件才上传）----
+                await LoadLayoutAsync();
+
+
                 // ---- 1. 键值查询（全局）----
                 SetStatus("正在从键盘读取全部按键映射…");
                 var mapOutcome = await QueryAsync(QueryTarget.Mapping, QueryMode.All, 0,
@@ -1245,6 +1533,7 @@ namespace KeyboardOG
             }
 
             hallPanel.SetKeyCount(_keyCount);
+            if (_layoutPanel != null) _layoutPanel.SetKeyCount(_keyCount);
             for (int i = _keyCount; i < _keyDirty.Length; i++) _keyDirty[i] = false;
 
             //执行条上的文案跟着实际按键数量走

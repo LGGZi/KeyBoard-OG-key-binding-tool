@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -214,6 +214,11 @@ namespace KeyboardOG
                         index, info.VendorId, info.ProductId, info.Name,
                         info.IsCommandInterface != 0 ? string.Empty : "  (非指令接口，指令可能无效)");
 
+                    //刚打开就发第一条指令时，设备有时还没准备好，ACK 会晚几十毫秒才到；
+                    //先等一小会儿并清掉可能残留的旧数据，避免第一条查询“立刻失败”。
+                    System.Threading.Thread.Sleep(120);
+                    DrainInput();
+
                     SetConnected(true, desc);
                     Log.Add(LogKind.Info, "打开设备", desc, null, LogState.Done);
                     tcs.TrySetResult(null);
@@ -263,6 +268,21 @@ namespace KeyboardOG
                         {
                             if (ProbeOne(idx, timeoutMs)) alive.Add(idx);
                         }
+
+                        //整批只记一行：没有设备回应时才算超时，否则就是普通信息
+                        if (indices.Length > 0)
+                        {
+                            if (alive.Count == 0)
+                                Log.Add(LogKind.Info, "探测",
+                                    L.F("{0} 个候选设备都没有回应设备信息查询（很可能不是键盘）",
+                                        "None of the {0} candidate devices answered the device-info query",
+                                        indices.Length), null, LogState.Timeout);
+                            else if (alive.Count < indices.Length)
+                                Log.Add(LogKind.Info, "探测",
+                                    L.F("{0} 个候选设备中 {1} 个有回应，其余忽略",
+                                        "{1} of {0} candidates answered, the rest were ignored",
+                                        indices.Length, alive.Count), null, LogState.Done);
+                        }
                     }
                 }
                 catch { }
@@ -301,7 +321,6 @@ namespace KeyboardOG
             }
             catch { ok = false; }
 
-            if (!ok) Log.Add(LogKind.Info, "探测", "这个设备没有回应设备信息查询（不是键盘）", null, LogState.Timeout);
             return ok;
         }
 
@@ -442,7 +461,11 @@ namespace KeyboardOG
             }
 
             var resp = new byte[HidNative.CommandSize];
-            if (HidNative.Hid_ReadResponse(resp, req.ResponseTimeoutMs) == 0)
+            int waitStart = Environment.TickCount;
+            int read = HidNative.Hid_ReadResponse(resp, req.ResponseTimeoutMs);
+            int waited = Environment.TickCount - waitStart;
+
+            if (read == 0)
             {
                 Log.Add(LogKind.Rx, "RESPONSE", DescribeResponse(req, resp), resp, LogState.Done);
 
@@ -453,11 +476,31 @@ namespace KeyboardOG
                 else
                     Log.Complete(entry, LogState.Done, "已收到键盘回应");
             }
-            else
+            else if (waited >= req.ResponseTimeoutMs - 50 || IsSliceTimeout(HidNative.LastError))
             {
+                //真的等满了
                 Log.Complete(entry, LogState.Timeout,
                     string.Format("等待 {0} ms 无回应", req.ResponseTimeoutMs));
             }
+            else
+            {
+                //没等满就返回：不是超时，是读取本身失败（设备被关掉 / 没有选中设备等）
+                Log.Complete(entry, LogState.Failed,
+                    L.F("读取回应失败（{0}），实际只等了 {1} ms（配置超时 {2} ms）",
+                        "Read failed ({0}) after only {1} ms (timeout was {2} ms)",
+                        HidNative.LastError, waited, req.ResponseTimeoutMs));
+            }
+        }
+
+        /// <summary>
+        /// 原生库的读取是按 15ms 分片返回的：没数据时它会立刻回 "Read timeout (15 ms)"。
+        /// 这属于“暂时没数据”，不是设备错误，不该写进日志、也不该当失败原因。
+        /// </summary>
+        private static bool IsSliceTimeout(string error)
+        {
+            if (string.IsNullOrEmpty(error)) return true;
+            if (error.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return error.IndexOf("超时", StringComparison.Ordinal) >= 0;
         }
 
         /// <summary>回传内容是否与发出去的 8 字节完全一致（固件约定的 ACK 方式）。</summary>
@@ -529,6 +572,14 @@ namespace KeyboardOG
                 case ResponseKind.DeviceInfo:
                     var dev = DeviceInfo.FromFrame(response);
                     return dev == null ? "设备信息（解析失败）" : "设备信息：" + dev.ToString();
+
+                case ResponseKind.LayoutItem:
+                    var layoutItem = KeyLayoutItem.FromFrame(response);
+                    if (layoutItem == null) return L.T("查询结果·布局（解析失败）", "layout item (parse failed)");
+                    return L.F("查询结果·布局：按键 #{0}  x={1:0.00}u y={2:0.00}u  {3:0.00}u × {4:0.00}u",
+                               "layout item: key #{0}  x={1:0.00}u y={2:0.00}u  {3:0.00}u × {4:0.00}u",
+                               layoutItem.Index, layoutItem.UnitsX, layoutItem.UnitsY,
+                               layoutItem.UnitsW, layoutItem.UnitsH);
             }
 
             if (req != null && req.Payload != null && response[0] == req.Payload[0])
@@ -576,7 +627,8 @@ namespace KeyboardOG
                     foreach (var f in Frames)
                     {
                         var k = ResponseParser.KindOf(f);
-                        if (k == ResponseKind.MapItem || k == ResponseKind.ParamItem) n++;
+                        if (k == ResponseKind.MapItem || k == ResponseKind.ParamItem
+                            || k == ResponseKind.LayoutItem) n++;
                     }
                     return n;
                 }
@@ -592,6 +644,20 @@ namespace KeyboardOG
         ///   · 校准时每帧之间要等用户按键，必须给足（否则会被误判成没有下文了）。
         /// 每收到一条就回调 onFrame（在工作线程上，调用方自己切回 UI 线程）。
         /// </summary>
+        /// <summary>
+        /// 查询按键布局：固件逐键回 0xFE 帧（每键一帧），最后回一个 FIN。
+        /// 收帧到 FIN 就结束；用 KeyLayout.FromFrames 做数量 / 索引校验。
+        /// </summary>
+        public Task<CollectOutcome> QueryLayoutAsync(int expectedKeys, int timeoutMs)
+        {
+            var req = CommandRequest.Of("QUERY/LAYOUT",
+                L.F("读取按键布局（{0} 键）", "read key layout ({0} keys)", expectedKeys),
+                CommandBuilder.Query(QueryTarget.Layout, QueryMode.All, 0), 0);
+
+            return SendAndCollectAsync(req, timeoutMs, null, 400,
+                frame => ResponseParser.KindOf(frame) == ResponseKind.Fin);
+        }
+
         public Task<CollectOutcome> SendAndCollectAsync(CommandRequest req, int overallTimeoutMs,
                                                         Action<byte[]> onFrame,
                                                         int perFrameTimeoutMs = 800,
@@ -642,18 +708,38 @@ namespace KeyboardOG
                 return;
             }
 
-            int deadline = Environment.TickCount + overallTimeoutMs;
+            int startedAt = Environment.TickCount;
+            int deadline = startedAt + overallTimeoutMs;
             bool firstFrame = true;
+            int readRetries = 0;
             while (!_disposed)
             {
                 int remain = deadline - Environment.TickCount;
                 if (remain <= 0) break;
 
-                var resp = new byte[HidNative.CommandSize];
-                //第一帧（ACK）应该立刻到；后面的帧按 perFrameTimeoutMs 等
+                //原生库是“15ms 分片读”：没数据就立刻返回错误，不会阻塞满整段时间。
+                //所以这里自己按“这一段”的时长轮询 —— 第一帧最多等 1000ms，
+                //后续帧按 perFrameTimeoutMs（默认 800ms）。只有整段都没数据才算结束。
                 int wait = outcome.Frames.Count == 0 ? Math.Min(remain, 1000) : Math.Min(remain, perFrameTimeoutMs);
-                if (HidNative.Hid_ReadResponse(resp, Math.Max(wait, 1)) != 0)
-                    break;      //这一段没等到，认为回传结束
+                int sliceStart = Environment.TickCount;
+                byte[] resp = null;
+
+                while (!_disposed && Environment.TickCount < deadline)
+                {
+                    int used = Environment.TickCount - sliceStart;
+                    if (used >= wait) break;
+
+                    int slice = Math.Max(1, Math.Min(60, wait - used));
+                    var buf = new byte[HidNative.CommandSize];
+                    if (HidNative.Hid_ReadResponse(buf, slice) == 0)
+                    {
+                        resp = buf;
+                        break;
+                    }
+                    readRetries++;
+                }
+
+                if (resp == null) break;    //这一段确实没有数据了
 
                 outcome.Frames.Add(resp);
                 var kind = ResponseParser.KindOf(resp);
@@ -711,8 +797,16 @@ namespace KeyboardOG
                 done = string.Format("已完成，共收到 {0} 条数据", outcome.ItemCount);
             else if (outcome.Mismatch != null)
                 done = "⚠ " + outcome.Mismatch + "（常见原因：发太快 / 上一条的回应没读走）";
+            else if (Environment.TickCount - startedAt >= overallTimeoutMs - 50
+                     || IsSliceTimeout(HidNative.LastError))
+                done = L.F("等待 {0} ms 没有收到回应（重试 {1} 次），已收到 {2} 条数据",
+                           "No reply after {0} ms ({1} retries), {2} frames received",
+                           overallTimeoutMs, readRetries, outcome.ItemCount);
             else
-                done = string.Format("等待 {0} ms 没有收到 FIN，已收到 {1} 条数据", overallTimeoutMs, outcome.ItemCount);
+                done = L.F("读取回应失败（{0}），实际等了 {1} ms / 配置 {2} ms（重试 {3} 次），已收到 {4} 条数据",
+                           "Read failed ({0}) after {1} ms of {2} ms ({3} retries), {4} frames received",
+                           HidNative.LastError, Environment.TickCount - startedAt, overallTimeoutMs,
+                           readRetries, outcome.ItemCount);
 
             bool clean = outcome.SawFin && outcome.Mismatch == null;
             if (!clean) _mayHaveStaleFrames = true;      //这条没干净收尾，下一条发之前先清管道

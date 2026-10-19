@@ -63,7 +63,7 @@ namespace KeyboardOG
     public static class AppVersion
     {
         // 改软件版本就改这里；同时记得在 Compatibility.Table 里登记它支持的固件范围。
-        public static readonly FirmwareVersion Current = FirmwareVersion.Of(1, 0, 1);
+        public static readonly FirmwareVersion Current = FirmwareVersion.Of(1, 0, 2);
 
         public static string Text { get { return Current.ToString(); } }
     }
@@ -97,10 +97,10 @@ namespace KeyboardOG
         // 发新软件版本时往上加一行（越靠前越新）。
         private static readonly Entry[] Table =
         {
-            // 软件 1.01：支持固件 1.00 ~ 1.57（1.xx 这一代协议）
+            // 软件 1.02：支持固件 1.00 ~ 1.57（1.xx 这一代协议）
             new Entry
             {
-                Software    = FirmwareVersion.Of(1, 0, 1),
+                Software    = FirmwareVersion.Of(1, 0, 2),
                 MinFirmware = FirmwareVersion.Of(1, 0, 0),
                 MaxFirmware = FirmwareVersion.Of(1, 5, 7),
                 Note        = "current mapping/parameter protocol (APPEND/OVERRIDE/CLEAR, device info carries the version)",

@@ -1,4 +1,4 @@
-# KeyboardOG — 磁轴键盘改键 / 调参上位机
+﻿# KeyboardOG — 磁轴键盘改键 / 调参上位机
 
 **中文** | [English](README.en.md)
 
@@ -6,7 +6,7 @@
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.6.1-512BD4?logo=dotnet&logoColor=white)](#系统要求)
 [![C# WinForms](https://img.shields.io/badge/C%23-WinForms-239120?logo=csharp&logoColor=white)](#从源码构建)
 [![UI Language](https://img.shields.io/badge/UI-%E4%B8%AD%E6%96%87%20%7C%20English-2ea44f)](#中文--英文界面)
-[![Version](https://img.shields.io/badge/version-1.01-blue)](#固件版本校验)
+[![Version](https://img.shields.io/badge/version-1.02-blue)](#固件版本校验)
 
 一个通过 USB HID 指令接口直接读写键盘配置的 Windows 上位机，用来修改**按键映射**、
 调整**磁轴参数**、执行**校准**，并实时查看每一条下发指令的执行结果。
@@ -106,12 +106,12 @@
   前 2 位 = 整数位，中间 3 位 = 小数点后第一位，最后 3 位 = 小数点后第二位
   （例如 `0b01_011_001` = `0x59` → **1.31**，`0x41` → **1.01**）。
 - 软件侧维护一张"软件版本 ↔ 支持的固件范围"表；连接后立刻判断并显示：
-  - 支持：显示 `固件 1.01 / 软件 1.01`；
+  - 支持：显示 `固件 1.04 / 软件 1.02`；
   - 固件过老：红字 `固件版本过老，请更新固件`；
   - 固件过新：红字 `固件版本过新，请更新软件`；
   - 并附一行 `版本不匹配可能导致意料之外的问题`。
 
-  当前软件 `1.01` 支持固件 **1.00 ~ 1.57**（见 `Protocol/VersionInfo.cs`）。
+  当前软件 `1.02` 支持固件 **1.00 ~ 1.57**（见 `Protocol/VersionInfo.cs`）。
 
 ### 其它细节
 

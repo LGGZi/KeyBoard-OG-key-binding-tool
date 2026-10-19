@@ -307,3 +307,56 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\Check-Localization.ps1
 * exit code 0 = everything translated, 1 = missing entries (report in `tools/localization-report.txt`)
 * trailing comments and `#`-prefixed ini strings are ignored
 * `L.T("zh", "en")` / `L.F("zh", "en", ...)` carry their English inline
+
+## 10. Key layout upload (0xFE)
+
+Newer firmware describes its physical key arrangement so the host can draw the real
+layout instead of a fixed grid.
+
+**Device info byte `[5]` = layoutKind**
+
+| value | meaning |
+|---|---|
+| `0x00` | legacy device, no layout — host keeps the fixed grid |
+| `0xFF` | custom layout, upload it after connecting |
+| `0x01`~`0xFE` | reserved for built-in layout ids |
+
+**Query**
+
+```
+host 04 FE 00 00 00 00 00 seq      QUERY target 0xFE (layout)
+dev  05 04 seq ...                 ACK
+dev  FE idx x y w h flags seq      one frame per key, BUTTONCOUNT frames
+dev  06 ...                        FIN
+```
+
+`0x02` is already taken by `QUERY_CALIB`, so the layout target is `0xFE`, which also keeps
+the "device-info family grows downwards from 0xFF" rule.
+
+**Frame `0xFE`**
+
+| byte | meaning |
+|---|---|
+| `[0]` | `0xFE` |
+| `[1]` | key index `0..BUTTONCOUNT-1` |
+| `[2]` | x, units of 0.25u (4 = 1u), origin top-left |
+| `[3]` | y |
+| `[4]` | w, minimum 1 |
+| `[5]` | h, minimum 1 |
+| `[6]` | flags: bit7|bit6 = `11` → key needs rotation (angle/centre come later in a `0xFD` frame); bits 5..0 = key type (0 normal, 1 modifier, 2 encoder, 3 decor) |
+| `[7]` | sequence, echoed like every other reply |
+
+**Host side**
+
+* `KeyLayoutItem.FromFrame()` parses one frame, `ResponseKind.LayoutItem` identifies it.
+* `HidTransport.QueryLayoutAsync()` collects replies until FIN (400 ms between frames).
+* `KeyLayout.FromFrames()` validates: frame count equals `BUTTONCOUNT`, indices cover
+  `0..N-1` exactly once, `w >= 1`, `h >= 1`. Any failure returns `null` plus a reason.
+* `Form1.LoadLayoutAsync()` runs after device info; on failure it logs the reason and
+  keeps the fixed grid — layout problems never block the mapping/parameter sync.
+* `LayoutPanel` draws the keys, colours them like the left-hand buttons
+  (green = matches device, red = local edit, blue = selected) and raises
+  `KeySelected` so clicking a key selects it.
+
+Coordinates are integers in 0.25u, so 60 %, TKL and 104-key boards all fit in one byte per
+axis (max 63.75u). Layout data lives in firmware flash (PROGMEM), never in EEPROM.

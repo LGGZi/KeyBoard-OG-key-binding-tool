@@ -1,4 +1,4 @@
-# KeyboardOG — Key Mapping & Parameter Editor for Hall-Effect Keyboards
+﻿# KeyboardOG — Key Mapping & Parameter Editor for Hall-Effect Keyboards
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.6.1-512BD4?logo=dotnet&logoColor=white)](#requirements)
 [![C# WinForms](https://img.shields.io/badge/C%23-WinForms-239120?logo=csharp&logoColor=white)](#build-from-source)
 [![UI Language](https://img.shields.io/badge/UI-%E4%B8%AD%E6%96%87%20%7C%20English-2ea44f)](#chinese--english-ui)
-[![Version](https://img.shields.io/badge/version-1.01-blue)](#firmware-version-check)
+[![Version](https://img.shields.io/badge/version-1.02-blue)](#firmware-version-check)
 
 A Windows host application that talks to the keyboard firmware over a **USB HID command
 interface**. It edits key mappings, tunes hall-effect parameters, triggers calibration and
@@ -120,11 +120,11 @@ After a successful write a `CMD_REFRESH` follows automatically, so **no repluggi
   second decimal (e.g. `0b01_011_001` = `0x59` → **1.31**, `0x41` → **1.01**).
 - The app keeps a "software version ↔ supported firmware range" table and evaluates it right
   after connecting:
-  - supported: `固件 1.01 / 软件 1.01` (firmware / software version);
+  - supported: `固件 1.04 / 软件 1.02` (firmware / software version);
   - firmware too old: red `固件版本过老，请更新固件`;
   - firmware too new: red `固件版本过新，请更新软件`;
   - plus `版本不匹配可能导致意料之外的问题`.
-- Software `1.01` currently supports firmware **1.00 – 1.57** (see `Protocol/VersionInfo.cs`).
+- Software `1.02` currently supports firmware **1.00 – 1.57** (see `Protocol/VersionInfo.cs`).
 
 ### Other details
 

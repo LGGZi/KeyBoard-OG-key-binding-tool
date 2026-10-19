@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -135,16 +135,39 @@ namespace KeyboardOG
             Text = string.Format("Command log - KeyboardOG   (sent {0} / received {1})", tx, rx);
         }
 
-        /// <summary>挑一个肯定能写的地方当默认目录（exe 可能在 Program Files 里，没写权限）。</summary>
+        /// <summary>
+        /// 默认导出目录：**先试程序自己所在的目录**（本地根目录），写不进去再退回「文档」/「桌面」。
+        /// exe 放在 Program Files 或只读目录时不会弹错，自动换地方。
+        /// </summary>
         private static string SafeFolder()
         {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            if (!string.IsNullOrEmpty(baseDir) && Directory.Exists(baseDir) && IsWritable(baseDir))
+                return baseDir;
+
             string dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) return dir;
 
             dir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) return dir;
 
-            return AppDomain.CurrentDomain.BaseDirectory;
+            return baseDir;
+        }
+
+        /// <summary>真写一个临时文件来判断目录可写（删不掉不算失败，避免被“禁止删除”误判）。</summary>
+        private static bool IsWritable(string dir)
+        {
+            try
+            {
+                string probe = Path.Combine(dir, ".keyboardog_write_test.tmp");
+                File.WriteAllText(probe, "x");
+                try { File.Delete(probe); } catch { }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private void OnExport(object sender, EventArgs e)
