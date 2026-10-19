@@ -598,6 +598,13 @@ namespace KeyboardOG
             /// <summary>收到的全部回传（含 ACK / FIN）。</summary>
             public readonly List<byte[]> Frames = new List<byte[]>();
 
+            /// <summary>
+            /// 是否因为收到“约定的最后一帧”而正常结束。
+            /// 像设备信息查询这种**没有 FIN** 的指令，就靠这个标记判断成功，
+            /// 否则会被当成超时（之前的“等待 3000 ms … 重试 0 次”就是这么来的）。
+            /// </summary>
+            public bool EndedOnFinalFrame;
+
             /// <summary>是否收到了 FIN（说明下位机执行完了）。</summary>
             public bool SawFin;
 
@@ -629,7 +636,7 @@ namespace KeyboardOG
                     {
                         var k = ResponseParser.KindOf(f);
                         if (k == ResponseKind.MapItem || k == ResponseKind.ParamItem
-                            || k == ResponseKind.LayoutItem) n++;
+                            || k == ResponseKind.LayoutItem || k == ResponseKind.DeviceInfo) n++;
                     }
                     return n;
                 }
@@ -793,19 +800,25 @@ namespace KeyboardOG
                 bool last = isFinalFrame != null
                     ? (paired && isFinalFrame(resp))
                     : (kind == ResponseKind.Fin && paired);
-                if (last) break;
+                if (last)
+                {
+                    if (isFinalFrame != null && kind != ResponseKind.Fin) outcome.EndedOnFinalFrame = true;
+                    break;
+                }
             }
 
+            bool finished = outcome.Mismatch == null && (outcome.SawFin || outcome.EndedOnFinalFrame);
+
             string done;
-            if (outcome.SawFin && outcome.Mismatch == null)
+            if (finished)
                 done = string.Format("已完成，共收到 {0} 条数据", outcome.ItemCount);
             else if (outcome.Mismatch != null)
                 done = "⚠ " + outcome.Mismatch + "（常见原因：发太快 / 上一条的回应没读走）";
             else if (Environment.TickCount - startedAt >= overallTimeoutMs - 50
                      || IsSliceTimeout(HidNative.LastError))
-                done = L.F("等待 {0} ms 没有收到回应（重试 {1} 次，用时 {2} ms，发送 {3} ms，已收到 {4} 条）",
-                           "No reply after {0} ms ({1} retries, {2} ms spent, send took {3} ms, {4} frames)",
-                           overallTimeoutMs, readRetries, Environment.TickCount - startedAt, sendMs,
+                done = L.F("等待 {0} ms 没有收到回应（重试 {1} 次，用时 {2} ms），已收到 {3} 条数据",
+                           "No reply after {0} ms ({1} retries, {2} ms spent), {3} frames received",
+                           overallTimeoutMs, readRetries, Environment.TickCount - startedAt,
                            outcome.ItemCount);
             else
                 done = L.F("读取回应失败（{0}），实际等了 {1} ms / 配置 {2} ms（重试 {3} 次），已收到 {4} 条数据",
@@ -813,7 +826,7 @@ namespace KeyboardOG
                            HidNative.LastError, Environment.TickCount - startedAt, overallTimeoutMs,
                            readRetries, outcome.ItemCount);
 
-            bool clean = outcome.SawFin && outcome.Mismatch == null;
+            bool clean = finished;
             if (!clean) _mayHaveStaleFrames = true;      //这条没干净收尾，下一条发之前先清管道
             else _mayHaveStaleFrames = false;
 
