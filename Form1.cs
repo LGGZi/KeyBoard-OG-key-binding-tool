@@ -144,8 +144,17 @@ namespace KeyboardOG
 
             RestoreHint();      //提示行 = 磁轴参数说明（校准时会被临时替换）
 
+            //带上 exe 的构建时间：以后看日志就能确认跑的是哪一版
+            string buildTime = "";
+            try
+            {
+                buildTime = "  [build " + System.IO.File.GetLastWriteTime(
+                    System.Reflection.Assembly.GetExecutingAssembly().Location).ToString("yyyy-MM-dd HH:mm") + "]";
+            }
+            catch { }
+
             _log.Add(LogKind.Info, "启动",
-                "KeyboardOG 改键工具已启动。协议：Report ID 0x04，8 字节指令。",
+                "KeyboardOG 改键工具已启动。协议：Report ID 0x04，8 字节指令。" + buildTime,
                 null, LogState.None);
 
             // 界面建好了：按设置把语言套上去（静态文本一次性全换）

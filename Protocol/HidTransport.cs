@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -496,6 +496,7 @@ namespace KeyboardOG
         /// 原生库的读取是按 15ms 分片返回的：没数据时它会立刻回 "Read timeout (15 ms)"。
         /// 这属于“暂时没数据”，不是设备错误，不该写进日志、也不该当失败原因。
         /// </summary>
+
         private static bool IsSliceTimeout(string error)
         {
             if (string.IsNullOrEmpty(error)) return true;
@@ -853,3 +854,4 @@ namespace KeyboardOG
         }
     }
 }
+
