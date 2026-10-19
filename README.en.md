@@ -279,12 +279,12 @@ Three things to know up front:
 - Current firmware reloads its configuration on `CMD_REFRESH`, so no replug is needed;
   with older firmware, replug the keyboard.
 
-**A media key fires many times per press**
+~~**A media key fires many times per press**~~
 
-- The firmware was re-uploading the same consumer report continuously. Keyboard/mouse bits are
+~~- The firmware was re-uploading the same consumer report continuously. Keyboard/mouse bits are
   state-based (repeating them is harmless), but Windows dispatches one action per report for the
   consumer page. Fixing it requires "upload only on change" in the firmware; it is unrelated to
-  the host app.
+  the host app.~~(New firmware has fixed this)
 
 **"Unknown publisher" / "Windows protected your PC"**
 
