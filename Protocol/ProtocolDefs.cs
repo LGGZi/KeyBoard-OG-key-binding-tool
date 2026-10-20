@@ -388,6 +388,12 @@ namespace KeyboardOG
         /// <summary>[7]：固件版本号（2|3|3 位切分，见 VersionInfo.cs）。</summary>
         public FirmwareVersion Firmware;
 
+        /// <summary>[6]：固件要求的上位机版本（2|3|3 位；0 = 旧固件，无要求）。</summary>
+        public byte HostRequiredRaw;
+
+        /// <summary>[6] 解码出来的版本号。</summary>
+        public FirmwareVersion HostRequired;
+
         /// <summary>[5] 布局类型：0x00 旧设备（不上传布局）、0xFF 自定义布局。</summary>
         public byte LayoutKind;
 
@@ -420,6 +426,8 @@ namespace KeyboardOG
             info.Reserved[0]   = r[5];
             info.Reserved[1]   = r[6];
             info.Reserved[2]   = r[7];
+            info.HostRequiredRaw = r[6];                           //倒数第二位：要求的上位机版本
+            info.HostRequired    = FirmwareVersion.FromByte(r[6]);
             info.Firmware      = FirmwareVersion.FromByte(r[7]);   //最后一位是固件版本
             info.Raw           = (byte[])r.Clone();
             return info;

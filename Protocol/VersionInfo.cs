@@ -62,8 +62,16 @@ namespace KeyboardOG
     /// <summary>本上位机软件的版本号（和固件同一套格式，便于对照）。</summary>
     public static class AppVersion
     {
-        // 改软件版本就改这里；同时记得在 Compatibility.Table 里登记它支持的固件范围。
-        public static readonly FirmwareVersion Current = FirmwareVersion.Of(1, 0, 2);
+        // 版本号只有一个来源：csproj 的 AssemblyVersion（1.0.7.0 -> 1.07）。
+        // 这里不再手写常量，避免"程序里写着 1.02、文件属性是 1.07"这种不一致。
+        public static readonly FirmwareVersion Current = FromAssembly();
+
+        private static FirmwareVersion FromAssembly()
+        {
+            var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            int minor2 = v.Build & 0x07;      // 2|3|3 只有 3 位给最后一段
+            return FirmwareVersion.Of(v.Major & 0x03, v.Minor & 0x07, minor2);
+        }
 
         public static string Text { get { return Current.ToString(); } }
     }
@@ -97,6 +105,14 @@ namespace KeyboardOG
         // 发新软件版本时往上加一行（越靠前越新）。
         private static readonly Entry[] Table =
         {
+            // 软件 1.07：支持固件 1.00 ~ 1.57（布局上传 / 灯效指令 / 灯效查询）
+            new Entry
+            {
+                Software    = FirmwareVersion.Of(1, 0, 7),
+                MinFirmware = FirmwareVersion.Of(1, 0, 0),
+                MaxFirmware = FirmwareVersion.Of(1, 5, 7),
+                Note        = "layout upload, LED settings and LED query",
+            },
             // 软件 1.02：支持固件 1.00 ~ 1.57（1.xx 这一代协议）
             new Entry
             {
