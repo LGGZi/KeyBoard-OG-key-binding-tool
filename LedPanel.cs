@@ -87,6 +87,9 @@ namespace KeyboardOG
             return map;
         }
 
+        /// <summary>刷新率 10 档（不做随意取值，避免滑块拖动时发一堆不同 fps）。</summary>
+        private static readonly byte[] FpsSteps = { 10, 20, 30, 40, 50, 60, 80, 100, 150, 200 };
+
         public LedSettings Values = new LedSettings();
 
         /// <summary>改动通知：主窗体据此发对应指令。</summary>
@@ -211,19 +214,19 @@ namespace KeyboardOG
             var lblF = new Label { Text = L.T("刷新率：", "Frame rate:"), Location = new Point(16, 202), Size = new Size(56, 20) };
             _barFps.Location = new Point(72, 196);
             _barFps.Size = new Size(230, 45);
-            _barFps.Minimum = 10;
-            _barFps.Maximum = 200;
-            _barFps.TickFrequency = 19;
+            _barFps.Minimum = 0;
+            _barFps.Maximum = FpsSteps.Length - 1;
+            _barFps.TickFrequency = 1;
             _barFps.SmallChange = 1;
-            _barFps.LargeChange = 10;
-            _barFps.Value = Values.Fps;
+            _barFps.LargeChange = 1;
+            _barFps.Value = FpsIndex(Values.Fps);
             _lblFps.Location = new Point(308, 204);
             _lblFps.Size = new Size(80, 20);
-            _lblFps.Text = Values.Fps + " fps";
+            _lblFps.Text = FpsSteps[FpsIndex(Values.Fps)] + " fps";
             _barFps.ValueChanged += (s, e) =>
             {
                 if (_suppress) return;
-                Values.Fps = (byte)_barFps.Value;
+                Values.Fps = FpsSteps[_barFps.Value];
                 _lblFps.Text = Values.Fps + " fps";
                 _debounceFps.Stop();
                 _debounceFps.Start();
@@ -277,6 +280,19 @@ namespace KeyboardOG
             RefreshSwatches();
 
             _suppress = false;
+        }
+
+        /// <summary>fps 值 -> 档位下标（找不到就用最接近的档）。</summary>
+        private static int FpsIndex(byte fps)
+        {
+            int best = 0;
+            int bestDiff = 255;
+            for (int i = 0; i < FpsSteps.Length; i++)
+            {
+                int diff = Math.Abs(FpsSteps[i] - fps);
+                if (diff < bestDiff) { bestDiff = diff; best = i; }
+            }
+            return best;
         }
 
         private void FillEffects(int group)
