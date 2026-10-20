@@ -407,7 +407,7 @@ namespace KeyboardOG
         // ------------------------------------------------------------
         private void BuildWriteButton()
         {
-            _btnWrite.Text = L.T("写入参数\r\n（只发修改项）", "Write params\r\n(changed only)");
+            _btnWrite.Text = L.T("写入参数", "Write params");
             _btnWrite.Location = new Point(ColX0 + ParamCount * ColW + 6, 52);
             _btnWrite.Size = new Size(102, 56);
             _btnWrite.Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
