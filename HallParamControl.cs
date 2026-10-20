@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -23,8 +23,9 @@ namespace KeyboardOG
         private const int ColX0 = 648;      //第一列参数的 x
         private const int ColW = 88;        //每列宽度
         private const int BarH = 96;        //垂直滑块高度（加长了）
-        private const int MinV = DeviceLimits.ParamValueMin;
-        private const int MaxV = DeviceLimits.ParamValueMax;
+        //每个参数自己的范围：RT 10~500，死区 0~200（见 DeviceLimits）
+        private static int MinValueOf(int i) { return DeviceLimits.ParamMin(BindingCatalog.Parameters[i].Code); }
+        private static int MaxValueOf(int i) { return DeviceLimits.ParamMax(BindingCatalog.Parameters[i].Code); }
 
         /// <summary>哪些参数的滑块要反过来（上 = 最小值）。顺序同 BindingCatalog.Parameters。</summary>
         private static readonly bool[] Invert = { true, false, true, false };
@@ -52,6 +53,10 @@ namespace KeyboardOG
         private readonly NumericUpDown[] _num = new NumericUpDown[ParamCount];
         private bool _syncInputs;                       //防止滑块和值框互相触发
         private readonly bool[] _paramDirty = new bool[DeviceLimits.KeyCount];
+
+        //键盘里当前按键的真实参数值（用来判断"这个参数改没改"，改过的值框文字变红）
+        private readonly int[] _deviceValue = new int[ParamCount];
+        private readonly bool[] _deviceKnown = new bool[ParamCount];
         //每个按键本地改了还没写入的那一份参数值（_paramDirty[k] 为 true 时这一份才有效）
         private readonly int[,] _paramPending = new int[DeviceLimits.KeyCount, ParamCount];
 
@@ -256,12 +261,12 @@ namespace KeyboardOG
         // ------------------------------------------------------------
         private static int ValueToSlider(int i, int value)
         {
-            return Invert[i] ? (MinV + MaxV - value) : value;
+            return Invert[i] ? (MinValueOf(i) + MaxValueOf(i) - value) : value;
         }
 
         private static int SliderToValue(int i, int slider)
         {
-            return Invert[i] ? (MinV + MaxV - slider) : slider;
+            return Invert[i] ? (MinValueOf(i) + MaxValueOf(i) - slider) : slider;
         }
 
         private void BuildParamColumns()
@@ -296,11 +301,11 @@ namespace KeyboardOG
                     Location = new Point(x + (ColW - 45) / 2, 54),
                     Size = new Size(45, BarH),
                     Orientation = Orientation.Vertical,
-                    Minimum = MinV,
-                    Maximum = MaxV,
-                    TickFrequency = 200,
+                    Minimum = MinValueOf(i),
+                    Maximum = MaxValueOf(i),
+                    TickFrequency = Math.Max(1, (MaxValueOf(i) - MinValueOf(i)) / 5),
                     SmallChange = 1,
-                    LargeChange = 10,
+                    LargeChange = Math.Max(1, (MaxValueOf(i) - MinValueOf(i)) / 20),
                     Value = ValueToSlider(i, DeviceLimits.ParamValueDefault),
                 };
                 _bar[i].ValueChanged += (s, e) => BarChanged(idx);
@@ -309,8 +314,8 @@ namespace KeyboardOG
                 {
                     Location = new Point(x + 4, 154),
                     Size = new Size(ColW - 8, 23),
-                    Minimum = MinV,
-                    Maximum = MaxV,
+                    Minimum = MinValueOf(i),
+                    Maximum = MaxValueOf(i),
                     TextAlign = HorizontalAlignment.Center,
                     Value = DeviceLimits.ParamValueDefault,
                 };
@@ -374,12 +379,18 @@ namespace KeyboardOG
             for (int i = 0; i < ParamCount; i++) _paramPending[key, i] = 0;
         }
 
-        /// <summary>值框是否染成淡红：现在显示的是"本地改过还没写入"的值。</summary>
+        /// <summary>
+        /// 逐个参数判断：值框里的值和键盘里的值不一样时，只有这个框变红（文字 + 淡红底）。
+        /// 按键选择区（那几个按键按钮）的颜色不受影响，仍然只表示"这个按键有没有未写入的改动"。
+        /// </summary>
         private void UpdatePendingTint()
         {
-            bool on = _focusKey >= 0 && _focusKey < _paramDirty.Length && _paramDirty[_focusKey];
             for (int i = 0; i < ParamCount; i++)
-                _num[i].BackColor = on ? Color.FromArgb(255, 236, 236) : SystemColors.Window;
+            {
+                bool modified = _deviceKnown[i] && (int)_num[i].Value != _deviceValue[i];
+                _num[i].BackColor = modified ? Color.FromArgb(255, 232, 232) : SystemColors.Window;
+                _num[i].ForeColor = modified ? Color.FromArgb(190, 30, 30) : SystemColors.WindowText;
+            }
         }
 
         /// <summary>这次写入实际会作用到哪些按键：勾了就是勾的那些，一个没勾就是当前按键。</summary>
@@ -396,7 +407,7 @@ namespace KeyboardOG
         // ------------------------------------------------------------
         private void BuildWriteButton()
         {
-            _btnWrite.Text = "将四个参数\r\n发给选中按键";
+            _btnWrite.Text = L.T("写入参数\r\n（只发修改项）", "Write params\r\n(changed only)");
             _btnWrite.Location = new Point(ColX0 + ParamCount * ColW + 6, 52);
             _btnWrite.Size = new Size(102, 56);
             _btnWrite.Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
@@ -561,15 +572,26 @@ namespace KeyboardOG
                     int deviceValue = 0;
                     if (ok)
                     {
-                        deviceValue = values[i];
-                        if (deviceValue < MinV) deviceValue = MinV;
-                        if (deviceValue > MaxV) deviceValue = MaxV;
+                        //标签里显示键盘里的真实值（可能是旧固件存的、超出新范围的值），
+                        //只有滑块 / 值框才夹到当前范围里，避免"显示 500 其实是 900"
+                        int rawValue = values[i];
+                        _deviceValue[i] = rawValue;
+                        _deviceKnown[i] = true;
+                        deviceValue = rawValue;
+                        if (deviceValue < MinValueOf(i)) deviceValue = MinValueOf(i);
+                        if (deviceValue > MaxValueOf(i)) deviceValue = MaxValueOf(i);
 
-                        _lblParamDevice[i].Text = L.F("键盘 {0}", "kbd {0}", deviceValue);
-                        _lblParamDevice[i].ForeColor = Color.FromArgb(30, 110, 60);
+                        bool outOfRange = rawValue < MinValueOf(i) || rawValue > MaxValueOf(i);
+                        _lblParamDevice[i].Text = outOfRange
+                            ? L.F("键盘 {0}（超出范围）", "kbd {0} (out of range)", rawValue)
+                            : L.F("键盘 {0}", "kbd {0}", rawValue);
+                        _lblParamDevice[i].ForeColor = outOfRange
+                            ? Color.FromArgb(200, 110, 20)
+                            : Color.FromArgb(30, 110, 60);
                     }
                     else
                     {
+                        _deviceKnown[i] = false;
                         _lblParamDevice[i].Text = L.T("键盘 —", "kbd —");
                         _lblParamDevice[i].ForeColor = Color.FromArgb(150, 150, 150);
                     }
@@ -578,8 +600,8 @@ namespace KeyboardOG
                     if (hasPending)
                     {
                         int v = _paramPending[key, i];
-                        if (v < MinV) v = MinV;
-                        if (v > MaxV) v = MaxV;
+                        if (v < MinValueOf(i)) v = MinValueOf(i);
+                        if (v > MaxValueOf(i)) v = MaxValueOf(i);
                         _num[i].Value = v;
                         _bar[i].Value = ValueToSlider(i, v);
                     }

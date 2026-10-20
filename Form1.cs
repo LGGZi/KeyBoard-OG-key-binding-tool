@@ -1691,7 +1691,7 @@ namespace KeyboardOG
 
         /// <summary>磁轴参数面板下面那行提示的默认文字（校准时会临时被替换掉）。</summary>
         private const string ParamHintText =
-            "提示：数值 = 满行程的千分比（11~979，40 = 4.0%）；RT 触发行程 / 上死区的滑块是「上=小、下=大」。" +
+            "提示：数值 = 满行程的千分比（RT 10~500 = 1%~50%；死区 0~200，0 = 关闭）；RT 触发行程 / 上死区的滑块是「上=小、下=大」。" +
             "「写入参数」会把四个参数一起发给范围内的按键，写完自动刷新，不用重新插拔。";
 
         /// <summary>把那行提示恢复成参数说明。</summary>
@@ -1727,8 +1727,8 @@ namespace KeyboardOG
         // 磁轴参数 / 校准（由 HallParamControl 触发）
         // ============================================================
         /// <summary>
-        /// 「写入参数」：把滑块上的四个参数发给**选中的那些按键**（没选就是当前按键），
-        /// 每个按键逐个发四条 SET_PARAM，最后统一发一条 CMD_REFRESH。
+        /// 「写入参数」：只把**改过的**参数发给选中的按键（没选就是当前按键）。
+        /// 和按键映射一样，值没变的参数不发 SET_PARAM；最后统一发一条 CMD_REFRESH。
         /// </summary>
         private async Task WriteParametersAsync()
         {
@@ -1744,14 +1744,40 @@ namespace KeyboardOG
                 ? string.Format(L.T("当前按键 #{0}"), _currentKey)
                 : string.Format(L.T("选中的 {0} 个按键（{1}）"), keys.Count, string.Join("/", keys.ConvertAll(k => "#" + k).ToArray()));
 
+            // 只挑出"和键盘里的值不一样"的项（键 + 参数），没变的完全不发
+            var pending = new List<int[]>();        // 每项 = { key, paramIndex }
+            for (int ki = 0; ki < keys.Count; ki++)
+            {
+                int key = keys[ki];
+                for (int i = 0; i < ParamOrder.Length; i++)
+                {
+                    if (_paramKnown[key, i] && _paramCache[key, i] == (ushort)values[i]) continue;
+                    pending.Add(new[] { key, i });
+                }
+            }
+
+            if (pending.Count == 0)
+            {
+                ShowHintTemporarily(L.T("这些参数和键盘里的一致，没有需要写入的内容。",
+                                        "These values already match the keyboard - nothing to write."), 4000);
+                SetStatus(L.T("没有修改的参数，未发送任何指令。", "No changed parameters, nothing sent."));
+                return;
+            }
+
+            var changedIdx = new List<int>();
+            foreach (var pr in pending) if (!changedIdx.Contains(pr[1])) changedIdx.Add(pr[1]);
+            changedIdx.Sort();
+
+            string lines = string.Join("\r\n", changedIdx.ConvertAll(i =>
+                string.Format(L.T("  {0} = {1}（{2}）"),
+                    L.T(BindingCatalog.Parameter(ParamOrder[i]).Name),
+                    values[i],
+                    BindingCatalog.FormatParameterValue(values[i]))));
+
             if (MessageBox.Show(this,
-                    string.Format(L.T("把四个参数写入 {0}？\r\n\r\n{1}\r\n\r\n每条指令都会等键盘回 FIN，写完全局刷新一次，不用重新插拔。\r\n\r\n继续？"),
-                        scope,
-                        string.Join("\r\n", Array.ConvertAll(ParamOrder, p =>
-                            string.Format(L.T("  {0} = {1}（{2}）"),
-                                L.T(BindingCatalog.Parameter(p).Name),
-                                values[Array.IndexOf(ParamOrder, p)],
-                                BindingCatalog.FormatParameterValue(values[Array.IndexOf(ParamOrder, p)]))))),
+                    string.Format(L.T("把 {0} 条参数改动写入 {1}？\r\n\r\n{2}\r\n\r\n没改动的参数不会发送；每条指令都会等键盘回 FIN，写完全局刷新一次。\r\n\r\n继续？",
+                                        "Write {0} changed parameter(s) to {1}?\r\n\r\n{2}\r\n\r\nUnchanged parameters are not sent. Each command waits for FIN, then a global refresh follows.\r\n\r\nContinue?"),
+                        pending.Count, scope, lines),
                     L.T("写入磁轴参数"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
             _busy = true;
@@ -1759,51 +1785,54 @@ namespace KeyboardOG
             try
             {
                 int failed = 0, done = 0;
-                int total = keys.Count * ParamOrder.Length;
+                int total = pending.Count;
 
-                var keyOk = new List<int>();      //四个参数全写成功的按键
-                foreach (int key in keys)
+                var keyFailedCount = new Dictionary<int, int>();
+                foreach (int key in keys) keyFailedCount[key] = 0;
+                var written = new List<int[]>();
+
+                foreach (var pr in pending)
                 {
-                    int keyFailed = 0;
-                    for (int i = 0; i < ParamOrder.Length; i++)
+                    int key = pr[0];
+                    int i = pr[1];
+                    var param = ParamOrder[i];
+                    int value = values[i];
+
+                    int minV = DeviceLimits.ParamMin(param);
+                    int maxV = DeviceLimits.ParamMax(param);
+                    if (value < minV || value > maxV)
                     {
-                        var param = ParamOrder[i];
-                        int value = values[i];
-
-                        if (value < DeviceLimits.ParamValueMin || value > DeviceLimits.ParamValueMax)
-                        {
-                            SetStatus(string.Format("参数值 {0} 超出固件接受范围（{1}~{2}），已跳过。",
-                                value, DeviceLimits.ParamValueMin, DeviceLimits.ParamValueMax));
-                            continue;
-                        }
-
-                        var req = CommandRequest.Of("SET_PARAM",
-                            string.Format("按键#{0} {1} = {2}（{3:0.0}% 行程）",
-                                key, BindingCatalog.Parameter(param).Name, value, value / 10.0),
-                            CommandBuilder.SetParameter(param, (byte)key, (ushort)value), 0);
-
-                        done++;
-                        SetStatus(string.Format("正在写入参数：{0}/{1}  {2}", done, total, req.Detail));
-                        if (!await SendCommandAsync(req)) { failed++; keyFailed++; }
-
-                        if (done < total) await Task.Delay(_settings.MinGapMs);
+                        SetStatus(L.F("参数值 {0} 超出该参数的允许范围（{1}~{2}），已跳过。",
+                                      "Value {0} is outside this parameter's range ({1}~{2}), skipped.",
+                                      value, minV, maxV));
+                        continue;
                     }
 
-                    if (keyFailed == 0) keyOk.Add(key);
+                    var req = CommandRequest.Of("SET_PARAM",
+                        string.Format("按键#{0} {1} = {2}（{3:0.0}% 行程）",
+                            key, BindingCatalog.Parameter(param).Name, value, value / 10.0),
+                        CommandBuilder.SetParameter(param, (byte)key, (ushort)value), 0);
+
+                    done++;
+                    SetStatus(string.Format("正在写入参数：{0}/{1}  {2}", done, total, req.Detail));
+                    if (await SendCommandAsync(req)) written.Add(pr);
+                    else { failed++; keyFailedCount[key] = keyFailedCount[key] + 1; }
+
+                    if (done < total) await Task.Delay(_settings.MinGapMs);
                 }
+
+                var keyOk = new List<int>();      //这次写入没有失败的按键
+                foreach (int key in keys) if (keyFailedCount[key] == 0) keyOk.Add(key);
 
                 //写完统一刷新一次
                 await SendCommandAsync(CommandRequest.Of("CMD_REFRESH", "刷新磁轴参数（EEPROM → 内存）",
                     CommandBuilder.Refresh(RefreshTarget.Parameter), 0));
 
-                //把本地缓存更新成刚写进去的值，界面显示跟着走
-                foreach (int key in keys)
+                //把本地缓存更新成刚写进去的值，界面显示跟着走（只更新真正发出去的项）
+                foreach (var pr in written)
                 {
-                    for (int i = 0; i < ParamOrder.Length; i++)
-                    {
-                        _paramCache[key, i] = (ushort)values[i];
-                        _paramKnown[key, i] = true;
-                    }
+                    _paramCache[pr[0], pr[1]] = (ushort)values[pr[1]];
+                    _paramKnown[pr[0], pr[1]] = true;
                 }
                 //只有四个参数都写成功的按键才把红字恢复成绿字
                 hallPanel.MarkParamsSynced(keyOk);

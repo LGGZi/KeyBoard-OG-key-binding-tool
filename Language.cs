@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -200,7 +200,7 @@ namespace KeyboardOG
             Add(m, "重新读取参数出错：", "Re-read error: ");
 
             // ---------- 磁轴参数写入 / 校准 ----------
-            Add(m, "提示：数值 = 满行程的千分比（11~979，40 = 4.0%）；RT 触发行程 / 上死区的滑块是「上=小、下=大」。", "Values are per-mille of full travel (11~979; 40 = 4.0%). RT trigger / upper deadzone sliders: top = min.");
+            Add(m, "提示：数值 = 满行程的千分比（RT 10~500 = 1%~50%；死区 0~200，0 = 关闭）；RT 触发行程 / 上死区的滑块是「上=小、下=大」。", "Values are per-mille of full travel (RT 10~500 = 1%~50%; deadzone 0~200, 0 = off). RT trigger / upper deadzone sliders: top = min.");
             Add(m, "「写入参数」会把四个参数一起发给范围内的按键，写完自动刷新，不用重新插拔。", "Write sends all four parameters to the selected keys and refreshes.");
             Add(m, "有指令正在执行，等它结束再写参数。", "A command is running; wait for it.");
             Add(m, "当前按键 #{0}", "current key #{0}");
@@ -402,8 +402,8 @@ namespace KeyboardOG
                 "⚠ Calibration blocks the firmware: press and release,\r\nother commands wait.\r\nParameters refresh afterwards.");
             Add(m, "主操作 = 把左侧列表整片写进当前按键，只动这一个键；后面的空槽由键盘自动清零，\r\n所以只发本地有的那几条映射。写完自动发 CMD_REFRESH，不用重新插拔键\r\n盘。",
                 "Main = write this key's list to the keyboard only; the keyboard clears the tail,\r\nso only your mappings are sent. CMD_REFRESH follows - no replug needed.");
-            Add(m, "提示：数值 = 满行程的千分比（11~979，40 = 4.0%）；RT 触发行程 / 上死区的滑块是「上=小、下=大」。「写入参数」会把四个参数一起发给范围内的按键，写完自动刷新，不用重新插拔。",
-                "Values are per-mille of full travel (11~979; 40 = 4.0%). RT trigger / upper deadzone sliders: top = min. Write sends all four parameters to the selected keys and refreshes.");
+            Add(m, "提示：数值 = 满行程的千分比（RT 10~500 = 1%~50%；死区 0~200，0 = 关闭）；RT 触发行程 / 上死区的滑块是「上=小、下=大」。「写入参数」会把四个参数一起发给范围内的按键，写完自动刷新，不用重新插拔。",
+                "Values are per-mille of full travel (RT 10~500 = 1%~50%; deadzone 0~200, 0 = off). RT trigger / upper deadzone sliders: top = min. Write sends all four parameters to the selected keys and refreshes.");
             Add(m, "按键报告：{0} 键 · {1} · 编码器 {2} 个", "Keyboard: {0} keys · {1} · {2} encoder(s)");
             Add(m, "刷新按键映射", "Refresh mappings");
             Add(m, "键", "keys");

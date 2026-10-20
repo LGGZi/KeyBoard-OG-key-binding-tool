@@ -44,7 +44,7 @@ function Remove-Comment([string]$line) {
 }
 
 $files = Get-ChildItem $root -Recurse -Include *.cs -File |
-    Where-Object { $_.Name -ne 'Language.cs' -and $_.FullName -notmatch '\\obj\\|\\bin\\' }
+    Where-Object { $_.Name -ne 'Language.cs' -and $_.FullName -notmatch '\\obj\\|\\bin\\|\\tools\\' }
 
 $missing = New-Object 'System.Collections.Generic.List[object]'
 $inlineTotal = 0

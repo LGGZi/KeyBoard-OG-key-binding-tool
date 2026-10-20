@@ -122,10 +122,34 @@ namespace KeyboardOG
         /// <summary>MAXIMUM_BINDABLE_KEY：每个按键最多几条映射。</summary>
         public const int MaxBindingsPerKey = 12;
 
-        /// <summary>参数值的固件有效区间（keyParameterSet 只接受 10 &lt; value &lt; 980）。</summary>
-        public const int ParamValueMin = 11;
-        public const int ParamValueMax = 979;
+        /// <summary>RT 触发 / 释放行程（千分比）：1% ~ 50% 行程。</summary>
+        public const int RtValueMin = 10;
+        public const int RtValueMax = 500;
+
+        /// <summary>上 / 下死区（千分比）：0 ~ 20% 行程，0 = 关闭死区。</summary>
+        public const int DeadzoneValueMin = 0;
+        public const int DeadzoneValueMax = 200;
+
+        /// <summary>新参数的默认值（4% 行程）。</summary>
         public const int ParamValueDefault = 40;
+
+        /// <summary>死区参数（固件对它们允许 0~200，RT 是 10~500）。</summary>
+        public static bool IsDeadzone(KeyParameter p)
+        {
+            return p == KeyParameter.UpperDeadzone || p == KeyParameter.LowerDeadzone;
+        }
+
+        /// <summary>某个参数允许的最小值。</summary>
+        public static int ParamMin(KeyParameter p)
+        {
+            return IsDeadzone(p) ? DeadzoneValueMin : RtValueMin;
+        }
+
+        /// <summary>某个参数允许的最大值。</summary>
+        public static int ParamMax(KeyParameter p)
+        {
+            return IsDeadzone(p) ? DeadzoneValueMax : RtValueMax;
+        }
     }
 
     /// <summary>构造 8 字节指令。</summary>
