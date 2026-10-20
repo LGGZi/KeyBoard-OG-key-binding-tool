@@ -36,6 +36,9 @@ namespace KeyboardOG
         Ack       = 0x05,
         Fin       = 0x06,
         Refresh   = 0x07,
+        SetLed    = 0x08,   // 即时设置灯效：[1]=效果 [2]=亮度 [3]=速度 [4..6]=主色
+        SetLedAccent = 0x09,// 即时设置副色：[1..3]=RGB
+        SaveLed   = 0x0A,   // 保存灯效参数：[1]=0x5A 确认
     }
 
     /// <summary>
@@ -182,6 +185,40 @@ namespace KeyboardOG
             d[3] = offset;
             d[4] = (byte)operation;
             d[5] = storageIndex;
+            return d;
+        }
+
+        /// <summary>灯效参数保存时的确认字节（和固件里的 LED_PARAMS_MAGIC 一致）。</summary>
+        public const byte LedSaveMagic = 0x5A;
+
+        /// <summary>即时设置灯效（效果 / 亮度 / 速度 / 主色），不写 EEPROM。</summary>
+        public static byte[] SetLed(byte effect, byte brightness, byte speed, byte r, byte g, byte b)
+        {
+            var d = New(HidCmd.SetLed);
+            d[1] = effect;
+            d[2] = brightness;
+            d[3] = speed;
+            d[4] = r;
+            d[5] = g;
+            d[6] = b;
+            return d;
+        }
+
+        /// <summary>即时设置副色（跑马灯 / 双色呼吸用），不写 EEPROM。</summary>
+        public static byte[] SetLedAccent(byte r, byte g, byte b)
+        {
+            var d = New(HidCmd.SetLedAccent);
+            d[1] = r;
+            d[2] = g;
+            d[3] = b;
+            return d;
+        }
+
+        /// <summary>把当前灯效参数写进键盘 EEPROM。</summary>
+        public static byte[] SaveLed()
+        {
+            var d = New(HidCmd.SaveLed);
+            d[1] = LedSaveMagic;
             return d;
         }
 

@@ -137,6 +137,7 @@ namespace KeyboardOG
             BuildKeyButtons();
             BuildLayoutPanelIntoKeyGroup();
             InitPickers();
+            InitLedUi();
             WireEvents();
 
             SelectKey(0);
@@ -800,6 +801,7 @@ namespace KeyboardOG
                 ? Color.FromArgb(20, 120, 60)
                 : Color.DimGray;
             btnConnect.Text = connected ? L.T("断开") : L.T("连接");
+            if (ledPanel != null) ledPanel.Enabled = connected;
 
             //醒目一点的连接状态徽标
             lblConnBadge.Text = connected ? L.T("● 设备已连接") : L.T("● 设备未连接");
@@ -868,6 +870,51 @@ namespace KeyboardOG
         ///     （绝不会牵连别的条目，想只留一个映射时不用先删再加）；
         ///   · 其余情况（右键 / Shift+左键 / 左键但没选中）-> 追加一条。
         /// </summary>
+        // ============================================================
+        // 灯效面板：作为映射选择器的第五个页签（键盘 / 鼠标 / 手柄 / 多媒体 / 灯效）
+        // ============================================================
+        private LedPanel ledPanel;
+        private TabPage tabLed;
+
+        private void InitLedUi()
+        {
+            tabLed = new TabPage { Text = L.T("灯效", "LED"), UseVisualStyleBackColor = true };
+            ledPanel = new LedPanel { Dock = DockStyle.Fill, Enabled = false };
+            tabLed.Controls.Add(ledPanel);
+            tabsPicker.Controls.Add(tabLed);
+
+            ledPanel.Changed += async (kind, ws) => await SendLedAsync(kind, ws);
+        }
+
+        private async Task SendLedAsync(LedChangeKind kind, LedSettings ws)
+        {
+            if (!RequireConnection()) return;
+
+            CommandRequest req;
+            if (kind == LedChangeKind.Save)
+            {
+                req = CommandRequest.Of("SAVE_LED", L.T("保存灯效参数到 EEPROM", "save LED settings to EEPROM"),
+                    CommandBuilder.SaveLed(), 0);
+            }
+            else if (kind == LedChangeKind.Accent)
+            {
+                req = CommandRequest.Of("SET_LED_ACCENT",
+                    string.Format(L.T("副色 = #{0:X2}{1:X2}{2:X2}", "accent = #{0:X2}{1:X2}{2:X2}"), ws.R2, ws.G2, ws.B2),
+                    CommandBuilder.SetLedAccent(ws.R2, ws.G2, ws.B2), 0);
+            }
+            else
+            {
+                req = CommandRequest.Of("SET_LED",
+                    string.Format(L.T("灯效 {0} / 亮度 {1} / 速度 {2} / 主色 #{3:X2}{4:X2}{5:X2}",
+                        "effect {0} / brightness {1} / speed {2} / color1 #{3:X2}{4:X2}{5:X2}"),
+                        ws.Effect, ws.Brightness, ws.Speed, ws.R1, ws.G1, ws.B1),
+                    CommandBuilder.SetLed(ws.Effect, ws.Brightness, ws.Speed, ws.R1, ws.G1, ws.B1), 0);
+            }
+
+            await SendCommandAsync(req);
+            if (kind == LedChangeKind.Save && req != null) SetStatus(L.T("灯效参数已保存到键盘。", "LED settings saved to the keyboard."));
+        }
+
         private void Picker_Picked(object sender, PickerPickedEventArgs e)
         {
             var picker = (IPickerControl)sender;
