@@ -896,6 +896,12 @@ namespace KeyboardOG
                 req = CommandRequest.Of("SAVE_LED", L.T("保存灯效参数到 EEPROM", "save LED settings to EEPROM"),
                     CommandBuilder.SaveLed(), 0);
             }
+            else if (kind == LedChangeKind.Fps)
+            {
+                req = CommandRequest.Of("SET_LED_FPS",
+                    string.Format(L.T("灯效刷新率 = {0} fps", "LED frame rate = {0} fps"), ws.Fps),
+                    CommandBuilder.SetLedFps(ws.Fps), 0);
+            }
             else if (kind == LedChangeKind.Accent)
             {
                 req = CommandRequest.Of("SET_LED_ACCENT",

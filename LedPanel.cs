@@ -8,60 +8,105 @@ namespace KeyboardOG
     public enum LedChangeKind
     {
         Live,       // 效果 / 亮度 / 速度 / 主色 -> CMD_SET_LED
+        Fps,        // 刷新率 -> CMD_SET_LED_FPS
         Accent,     // 副色 -> CMD_SET_LED_ACCENT
         Save,       // 保存 -> CMD_SAVE_LED
     }
 
-    /// <summary>一次灯效参数快照（和固件里的 LEDParams_t 对应，不含 magic）。</summary>
+    /// <summary>一次灯效参数快照（对应固件里的 LEDParams_t，不含 magic）。</summary>
     public sealed class LedSettings
     {
         public byte Effect = 2;         // LED_EFFECT_PRESS
         public byte Brightness = 128;
         public byte Speed = 8;
+        public byte Fps = 50;
         public byte R1 = 255, G1 = 0, B1 = 0;
         public byte R2 = 0, G2 = 120, B2 = 255;
     }
 
     /// <summary>
-    /// 灯效设置面板：模式（效果）、亮度、速度、主色、副色、保存。
-    /// 任何一项改动都会立刻通过 Changed 事件通知主窗体发指令（滑块带 200ms 防抖），
-    /// 「保存灯效」按钮才发保存指令。
+    /// 灯效设置面板：分组（单色 / 炫彩 / 双色）+ 效果、亮度、速度、刷新率、主色、副色、保存。
+    /// 任何改动都立刻通过 Changed 通知主窗体发指令（拖动类控件带 220ms 防抖），
+    /// 「保存灯效」才发保存指令。
     /// </summary>
     public class LedPanel : UserControl
     {
-        //效果编号和固件 WS2812BManager.h 里的 LED_EFFECT_* 一一对应
-        private static readonly string[] EffectNames =
+        /// <summary>一条效果条目：编号和固件 WS2812BManager.h 的 LED_EFFECT_* 一致。</summary>
+        private sealed class EffectEntry
         {
-            L.T("全灭", "Off"),
-            L.T("常亮", "Solid"),
-            L.T("按下即亮", "Press"),
-            L.T("按下 + 余辉", "Press + fade"),
-            L.T("打字热度", "Typing heat"),
-            L.T("彩虹", "Rainbow"),
-            L.T("呼吸", "Breath"),
-            L.T("波浪", "Wave"),
-            L.T("星光", "Sparkle"),
-            L.T("涟漪", "Ripple"),
-            L.T("跑马灯", "Comet"),
-            L.T("双色呼吸", "Dual breath"),
+            public readonly byte Id;
+            public readonly int Group;      // 0 单色 / 1 炫彩 / 2 双色
+            public readonly string Name;
+
+            public EffectEntry(byte id, int group, string name)
+            {
+                Id = id;
+                Group = group;
+                Name = name;
+            }
+
+            public override string ToString() { return Name; }   // 下拉框直接显示名字
+        }
+
+        private static readonly EffectEntry[] Effects =
+        {
+            // ---- 单色（0~9）----
+            new EffectEntry(0,  0, L.T("全灭", "Off")),
+            new EffectEntry(1,  0, L.T("常亮", "Solid")),
+            new EffectEntry(2,  0, L.T("按下即亮", "Press")),
+            new EffectEntry(3,  0, L.T("按下 + 余辉", "Press + fade")),
+            new EffectEntry(4,  0, L.T("打字热度", "Typing heat")),
+            new EffectEntry(5,  0, L.T("呼吸", "Breath")),
+            new EffectEntry(6,  0, L.T("波浪", "Wave")),
+            new EffectEntry(7,  0, L.T("星光", "Sparkle")),
+            new EffectEntry(8,  0, L.T("涟漪", "Ripple")),
+            new EffectEntry(9,  0, L.T("跑马灯", "Comet")),
+            // ---- 炫彩（10~14）----
+            new EffectEntry(10, 1, L.T("彩虹流动", "Rainbow")),
+            new EffectEntry(11, 1, L.T("彩虹呼吸", "Rainbow breath")),
+            new EffectEntry(12, 1, L.T("彩虹波浪", "Rainbow wave")),
+            new EffectEntry(13, 1, L.T("彩虹星光", "Rainbow sparkle")),
+            new EffectEntry(14, 1, L.T("彩虹跑马", "Rainbow comet")),
+            // ---- 双色（15~22）----
+            new EffectEntry(15, 2, L.T("双色呼吸", "Dual breath")),
+            new EffectEntry(16, 2, L.T("双色按下", "Dual press")),
+            new EffectEntry(17, 2, L.T("双色按下 + 渐回", "Dual press + fade")),
+            new EffectEntry(18, 2, L.T("双色波浪", "Dual wave")),
+            new EffectEntry(19, 2, L.T("双色跑马", "Dual comet")),
+            new EffectEntry(20, 2, L.T("双色打字", "Dual typing")),
+            new EffectEntry(21, 2, L.T("左右渐变", "Left/right gradient")),
+            new EffectEntry(22, 2, L.T("双色涟漪", "Dual ripple")),
         };
+
+        private static readonly int[] GroupOfEffect = BuildGroupMap();
+
+        private static int[] BuildGroupMap()
+        {
+            var map = new int[256];
+            foreach (var e in Effects) map[e.Id] = e.Group;
+            return map;
+        }
 
         public LedSettings Values = new LedSettings();
 
         /// <summary>改动通知：主窗体据此发对应指令。</summary>
         public event Action<LedChangeKind, LedSettings> Changed;
 
+        private readonly ComboBox _cmbGroup = new ComboBox();
         private readonly ComboBox _cmbEffect = new ComboBox();
         private readonly TrackBar _barBrightness = new TrackBar();
         private readonly TrackBar _barSpeed = new TrackBar();
+        private readonly TrackBar _barFps = new TrackBar();
         private readonly Label _lblBrightness = new Label();
         private readonly Label _lblSpeed = new Label();
+        private readonly Label _lblFps = new Label();
         private readonly Button _btnColor1 = new Button();
         private readonly Button _btnColor2 = new Button();
         private readonly Button _btnSave = new Button();
         private readonly Label _lblNote = new Label();
 
         private readonly Timer _debounce = new Timer { Interval = 220 };
+        private readonly Timer _debounceFps = new Timer { Interval = 220 };
         private bool _suppress;
 
         public LedPanel()
@@ -74,11 +119,17 @@ namespace KeyboardOG
                 _debounce.Stop();
                 Raise(LedChangeKind.Live);
             };
+            _debounceFps.Tick += (s, e) =>
+            {
+                _debounceFps.Stop();
+                Raise(LedChangeKind.Fps);
+            };
         }
 
         private void BuildUi()
         {
-            _suppress = true;      // 初始化时不要触发 Changed
+            _suppress = true;
+
             var title = new Label
             {
                 Text = L.T("灯效设置（六键键盘）", "LED settings (6-key keyboard)"),
@@ -87,22 +138,37 @@ namespace KeyboardOG
                 Size = new Size(360, 22),
             };
 
-            var lblEffect = new Label { Text = L.T("模式：", "Mode:"), Location = new Point(16, 50), Size = new Size(52, 20) };
-            _cmbEffect.Location = new Point(72, 46);
+            // ---- 分组 + 效果 ----
+            var lblGroup = new Label { Text = L.T("分组：", "Group:"), Location = new Point(16, 50), Size = new Size(52, 20) };
+            _cmbGroup.Location = new Point(72, 46);
+            _cmbGroup.Size = new Size(150, 24);
+            _cmbGroup.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cmbGroup.Items.Add(L.T("单色", "Single color"));
+            _cmbGroup.Items.Add(L.T("炫彩", "Rainbow"));
+            _cmbGroup.Items.Add(L.T("双色", "Two colors"));
+
+            var lblEffect = new Label { Text = L.T("效果：", "Effect:"), Location = new Point(16, 86), Size = new Size(52, 20) };
+            _cmbEffect.Location = new Point(72, 82);
             _cmbEffect.Size = new Size(230, 24);
             _cmbEffect.DropDownStyle = ComboBoxStyle.DropDownList;
-            for (int i = 0; i < EffectNames.Length; i++)
-                _cmbEffect.Items.Add(string.Format("{0}  {1}", i, EffectNames[i]));
-            _cmbEffect.SelectedIndex = Values.Effect;
+
+            _cmbGroup.SelectedIndexChanged += (s, e) =>
+            {
+                if (_suppress) return;
+                FillEffects(_cmbGroup.SelectedIndex);
+                if (_cmbEffect.Items.Count > 0) _cmbEffect.SelectedIndex = 0;
+            };
+
             _cmbEffect.SelectedIndexChanged += (s, e) =>
             {
                 if (_suppress || _cmbEffect.SelectedIndex < 0) return;
-                Values.Effect = (byte)_cmbEffect.SelectedIndex;
+                Values.Effect = ((EffectEntry)_cmbEffect.SelectedItem).Id;
                 Raise(LedChangeKind.Live);
             };
 
-            var lblBrightnessName = new Label { Text = L.T("亮度：", "Brightness:"), Location = new Point(16, 90), Size = new Size(52, 20) };
-            _barBrightness.Location = new Point(72, 84);
+            // ---- 亮度 ----
+            var lblB = new Label { Text = L.T("亮度：", "Brightness:"), Location = new Point(16, 122), Size = new Size(52, 20) };
+            _barBrightness.Location = new Point(72, 116);
             _barBrightness.Size = new Size(230, 45);
             _barBrightness.Minimum = 0;
             _barBrightness.Maximum = 255;
@@ -110,7 +176,7 @@ namespace KeyboardOG
             _barBrightness.SmallChange = 1;
             _barBrightness.LargeChange = 16;
             _barBrightness.Value = Values.Brightness;
-            _lblBrightness.Location = new Point(308, 92);
+            _lblBrightness.Location = new Point(308, 124);
             _lblBrightness.Size = new Size(60, 20);
             _lblBrightness.Text = Values.Brightness.ToString();
             _barBrightness.ValueChanged += (s, e) =>
@@ -121,15 +187,16 @@ namespace KeyboardOG
                 Debounced();
             };
 
-            var lblSpeedName = new Label { Text = L.T("速度：", "Speed:"), Location = new Point(16, 136), Size = new Size(52, 20) };
-            _barSpeed.Location = new Point(72, 130);
+            // ---- 速度 ----
+            var lblS = new Label { Text = L.T("速度：", "Speed:"), Location = new Point(16, 162), Size = new Size(52, 20) };
+            _barSpeed.Location = new Point(72, 156);
             _barSpeed.Size = new Size(230, 45);
             _barSpeed.Minimum = 1;
             _barSpeed.Maximum = 20;
             _barSpeed.TickFrequency = 2;
             _barSpeed.SmallChange = 1;
             _barSpeed.Value = Values.Speed;
-            _lblSpeed.Location = new Point(308, 138);
+            _lblSpeed.Location = new Point(308, 164);
             _lblSpeed.Size = new Size(60, 20);
             _lblSpeed.Text = Values.Speed.ToString();
             _barSpeed.ValueChanged += (s, e) =>
@@ -140,19 +207,42 @@ namespace KeyboardOG
                 Debounced();
             };
 
-            var lblColor1 = new Label { Text = L.T("主色：", "Color 1:"), Location = new Point(16, 186), Size = new Size(52, 20) };
-            _btnColor1.Location = new Point(72, 182);
+            // ---- 刷新率 ----
+            var lblF = new Label { Text = L.T("刷新率：", "Frame rate:"), Location = new Point(16, 202), Size = new Size(56, 20) };
+            _barFps.Location = new Point(72, 196);
+            _barFps.Size = new Size(230, 45);
+            _barFps.Minimum = 10;
+            _barFps.Maximum = 200;
+            _barFps.TickFrequency = 19;
+            _barFps.SmallChange = 1;
+            _barFps.LargeChange = 10;
+            _barFps.Value = Values.Fps;
+            _lblFps.Location = new Point(308, 204);
+            _lblFps.Size = new Size(80, 20);
+            _lblFps.Text = Values.Fps + " fps";
+            _barFps.ValueChanged += (s, e) =>
+            {
+                if (_suppress) return;
+                Values.Fps = (byte)_barFps.Value;
+                _lblFps.Text = Values.Fps + " fps";
+                _debounceFps.Stop();
+                _debounceFps.Start();
+            };
+
+            // ---- 颜色 ----
+            var lblC1 = new Label { Text = L.T("主色：", "Color 1:"), Location = new Point(16, 246), Size = new Size(52, 20) };
+            _btnColor1.Location = new Point(72, 242);
             _btnColor1.Size = new Size(74, 28);
             _btnColor1.FlatStyle = FlatStyle.Flat;
             _btnColor1.Click += (s, e) => PickColor(true);
 
-            var lblColor2 = new Label { Text = L.T("副色：", "Color 2:"), Location = new Point(170, 186), Size = new Size(52, 20) };
-            _btnColor2.Location = new Point(226, 182);
+            var lblC2 = new Label { Text = L.T("副色：", "Color 2:"), Location = new Point(170, 246), Size = new Size(52, 20) };
+            _btnColor2.Location = new Point(226, 242);
             _btnColor2.Size = new Size(74, 28);
             _btnColor2.FlatStyle = FlatStyle.Flat;
             _btnColor2.Click += (s, e) => PickColor(false);
 
-            _btnSave.Location = new Point(16, 232);
+            _btnSave.Location = new Point(16, 292);
             _btnSave.Size = new Size(150, 38);
             _btnSave.Text = L.T("保存灯效", "Save LED");
             _btnSave.Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
@@ -162,31 +252,53 @@ namespace KeyboardOG
             _btnSave.UseVisualStyleBackColor = false;
             _btnSave.Click += (s, e) => Raise(LedChangeKind.Save);
 
-            _lblNote.Location = new Point(16, 282);
-            _lblNote.Size = new Size(420, 60);
+            _lblNote.Location = new Point(16, 342);
+            _lblNote.Size = new Size(440, 70);
             _lblNote.ForeColor = Color.FromArgb(90, 90, 90);
             _lblNote.Text = L.T(
-                "改动会立即生效（滑块拖动结束后发送）；\r\n点“保存灯效”才会写进键盘的 EEPROM，断电后仍保留。",
-                "Changes apply immediately (sliders send after you stop dragging).\r\nPress \"Save LED\" to store them in the keyboard EEPROM.");
+                "改动会立即生效（滑块拖动结束后发送）。\r\n双色组使用主色 + 副色，炫彩组不使用这两个颜色。\r\n点“保存灯效”才会写进键盘的 EEPROM，断电后仍保留。",
+                "Changes apply immediately (sliders send after you stop dragging).\r\nTwo-color effects use color 1 + color 2; rainbow effects ignore them.\r\nPress \"Save LED\" to store them in the keyboard EEPROM.");
 
             Controls.Add(title);
-            Controls.Add(lblEffect);
-            Controls.Add(_cmbEffect);
-            Controls.Add(lblBrightnessName);
-            Controls.Add(_barBrightness);
-            Controls.Add(_lblBrightness);
-            Controls.Add(lblSpeedName);
-            Controls.Add(_barSpeed);
-            Controls.Add(_lblSpeed);
-            Controls.Add(lblColor1);
-            Controls.Add(_btnColor1);
-            Controls.Add(lblColor2);
-            Controls.Add(_btnColor2);
+            Controls.Add(lblGroup); Controls.Add(_cmbGroup);
+            Controls.Add(lblEffect); Controls.Add(_cmbEffect);
+            Controls.Add(lblB); Controls.Add(_barBrightness); Controls.Add(_lblBrightness);
+            Controls.Add(lblS); Controls.Add(_barSpeed); Controls.Add(_lblSpeed);
+            Controls.Add(lblF); Controls.Add(_barFps); Controls.Add(_lblFps);
+            Controls.Add(lblC1); Controls.Add(_btnColor1);
+            Controls.Add(lblC2); Controls.Add(_btnColor2);
             Controls.Add(_btnSave);
             Controls.Add(_lblNote);
 
+            int group = GroupOfEffect[Values.Effect];
+            _cmbGroup.SelectedIndex = group;
+            FillEffects(group);
+            SelectEffect(Values.Effect);
             RefreshSwatches();
+
             _suppress = false;
+        }
+
+        private void FillEffects(int group)
+        {
+            _cmbEffect.Items.Clear();
+            foreach (var e in Effects)
+            {
+                if (e.Group == group) _cmbEffect.Items.Add(e);
+            }
+        }
+
+        private void SelectEffect(byte id)
+        {
+            for (int i = 0; i < _cmbEffect.Items.Count; i++)
+            {
+                if (((EffectEntry)_cmbEffect.Items[i]).Id == id)
+                {
+                    _cmbEffect.SelectedIndex = i;
+                    return;
+                }
+            }
+            if (_cmbEffect.Items.Count > 0) _cmbEffect.SelectedIndex = 0;
         }
 
         private void Debounced()

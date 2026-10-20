@@ -39,6 +39,7 @@ namespace KeyboardOG
         SetLed    = 0x08,   // 即时设置灯效：[1]=效果 [2]=亮度 [3]=速度 [4..6]=主色
         SetLedAccent = 0x09,// 即时设置副色：[1..3]=RGB
         SaveLed   = 0x0A,   // 保存灯效参数：[1]=0x5A 确认
+        SetLedFps = 0x0B,   // 设置灯效刷新率：[1]=fps（10~200）
     }
 
     /// <summary>
@@ -211,6 +212,14 @@ namespace KeyboardOG
             d[1] = r;
             d[2] = g;
             d[3] = b;
+            return d;
+        }
+
+        /// <summary>单独设置灯效刷新率（10~200 fps），即时生效。</summary>
+        public static byte[] SetLedFps(byte fps)
+        {
+            var d = New(HidCmd.SetLedFps);
+            d[1] = fps;
             return d;
         }
 
