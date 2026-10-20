@@ -104,6 +104,8 @@ namespace KeyboardOG
         Mapping     = 0x00,
         Parameter   = 0x01,
         Calibration = 0x02,
+        /// <summary>灯效参数（固件回 0x0C / 0x0D 两帧，最后 FIN）。</summary>
+        Led         = 0x03,
         /// <summary>按键布局（固件逐键回 0xFE 帧，最后回 FIN）。</summary>
         Layout      = 0xFE,
         /// <summary>设备信息（固件 HIDDeviceInfoUpload）—— 回一帧就没有了，没有 FIN。</summary>
@@ -305,6 +307,8 @@ namespace KeyboardOG
         ParamItem,
         DeviceInfo,
         LayoutItem,
+        LedBasic,
+        LedColors,
     }
 
     /// <summary>
@@ -321,6 +325,45 @@ namespace KeyboardOG
     /// 注意：这条回复之后固件**不会**再发 FIN，所以它自己就是这次查询的结束标志。
     /// 后面三项现在用不到，先原样存着，留给之后的功能。
     /// </summary>
+    /// <summary>灯效基本参数帧（固件 LED_ITEM_BASIC = 0x0C）。</summary>
+    public sealed class LedBasicFrame
+    {
+        public const byte FrameId = 0x0C;
+        public byte Effect;
+        public byte Brightness;
+        public byte Speed;
+        public byte Fps;
+
+        public static LedBasicFrame FromFrame(byte[] r)
+        {
+            if (r == null || r.Length < 8 || r[0] != FrameId) return null;
+            return new LedBasicFrame
+            {
+                Effect = r[1],
+                Brightness = r[2],
+                Speed = r[3],
+                Fps = r[4],
+            };
+        }
+    }
+
+    /// <summary>灯效颜色帧（固件 LED_ITEM_COLORS = 0x0D）。</summary>
+    public sealed class LedColorsFrame
+    {
+        public const byte FrameId = 0x0D;
+        public byte R1, G1, B1, R2, G2, B2;
+
+        public static LedColorsFrame FromFrame(byte[] r)
+        {
+            if (r == null || r.Length < 8 || r[0] != FrameId) return null;
+            return new LedColorsFrame
+            {
+                R1 = r[1], G1 = r[2], B1 = r[3],
+                R2 = r[4], G2 = r[5], B2 = r[6],
+            };
+        }
+    }
+
     public sealed class DeviceInfo
     {
         public const byte FrameId = 0xFF;
@@ -442,6 +485,8 @@ namespace KeyboardOG
             if (r == null || r.Length < 8) return ResponseKind.Unknown;
             if (r[0] == DeviceInfo.FrameId) return ResponseKind.DeviceInfo;
             if (r[0] == KeyLayoutItem.FrameId) return ResponseKind.LayoutItem;
+            if (r[0] == LedBasicFrame.FrameId) return ResponseKind.LedBasic;
+            if (r[0] == LedColorsFrame.FrameId) return ResponseKind.LedColors;
 
             switch ((HidCmd)r[0])
             {

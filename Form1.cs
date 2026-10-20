@@ -884,6 +884,59 @@ namespace KeyboardOG
             tabsPicker.Controls.Add(tabLed);
 
             ledPanel.Changed += async (kind, ws) => await SendLedAsync(kind, ws);
+
+            //每次切到"灯效"页签，先读一遍键盘上的真实参数并显示出来，
+            //这样第一次改动不会把上位机的默认值直接写进键盘
+            tabsPicker.SelectedIndexChanged += async (s, e) =>
+            {
+                if (tabsPicker.SelectedTab == tabLed) await QueryLedAsync();
+            };
+        }
+
+        private bool _queryingLed;
+
+        /// <summary>查询键盘当前的灯效参数，并同步到灯效面板（不发设置指令）。</summary>
+        private async Task QueryLedAsync()
+        {
+            //切页签会走到这里：没连接时静默返回，不要弹对话框
+            if (!_transport.IsConnected || _queryingLed) return;
+            _queryingLed = true;
+            try
+            {
+                SetStatus(L.T("正在读取灯效参数…", "Reading LED settings…"));
+
+                var req = CommandRequest.Of("QUERY/LED",
+                    L.T("读取灯效参数", "read LED settings"),
+                    CommandBuilder.Query(QueryTarget.Led, QueryMode.All, 0), 0);
+
+                var outcome = await _transport.SendAndCollectAsync(req, 3000, null);
+                if (outcome == null || !outcome.Sent)
+                {
+                    SetStatus(L.T("读取灯效失败：查询指令没能发出去。", "Failed to send the LED query."));
+                    return;
+                }
+
+                var st = LedPanel.FromFrames(outcome.Frames);
+                if (st == null)
+                {
+                    SetStatus(L.T("没有收到灯效参数（固件可能是旧版本）。",
+                                  "No LED settings received (the firmware may be older)."));
+                    return;
+                }
+
+                ledPanel.ApplyFromDevice(st);
+                SetStatus(L.F("已读取灯效：效果 {0}，亮度 {1}，速度 {2}，{3} fps",
+                              "LED settings read: effect {0}, brightness {1}, speed {2}, {3} fps",
+                              st.Effect, st.Brightness, st.Speed, st.Fps));
+            }
+            catch (Exception ex)
+            {
+                SetStatus(L.F("读取灯效出错：{0}", "Reading LED settings failed: {0}", ex.Message));
+            }
+            finally
+            {
+                _queryingLed = false;
+            }
         }
 
         private async Task SendLedAsync(LedChangeKind kind, LedSettings ws)

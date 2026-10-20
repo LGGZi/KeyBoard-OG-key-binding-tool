@@ -92,6 +92,86 @@ namespace KeyboardOG
 
         public LedSettings Values = new LedSettings();
 
+        /// <summary>从键盘回传（0x0C / 0x0D 两帧）解析灯效参数；没有基本帧就返回 null。</summary>
+        public static LedSettings FromFrames(System.Collections.Generic.IEnumerable<byte[]> frames)
+        {
+            if (frames == null) return null;
+            var st = new LedSettings();
+            bool hasBasic = false;
+            foreach (var f in frames)
+            {
+                switch (ResponseParser.KindOf(f))
+                {
+                    case ResponseKind.LedBasic:
+                        var b = LedBasicFrame.FromFrame(f);
+                        if (b != null)
+                        {
+                            st.Effect = b.Effect;
+                            st.Brightness = b.Brightness;
+                            st.Speed = b.Speed;
+                            st.Fps = b.Fps;
+                            hasBasic = true;
+                        }
+                        break;
+                    case ResponseKind.LedColors:
+                        var c = LedColorsFrame.FromFrame(f);
+                        if (c != null)
+                        {
+                            st.R1 = c.R1; st.G1 = c.G1; st.B1 = c.B1;
+                            st.R2 = c.R2; st.G2 = c.G2; st.B2 = c.B2;
+                        }
+                        break;
+                }
+            }
+            return hasBasic ? st : null;
+        }
+
+        /// <summary>
+        /// 把键盘上的真实灯效参数显示到界面上（不发任何指令）。
+        /// 打开灯效页签时先调用它，避免第一次改动就把上位机的默认值写进键盘。
+        /// </summary>
+        public void ApplyFromDevice(LedSettings s)
+        {
+            if (s == null) return;
+
+            _suppress = true;
+            try
+            {
+                Values.Effect     = s.Effect;
+                Values.Brightness = s.Brightness;
+                Values.Speed      = s.Speed;
+                Values.Fps        = s.Fps;
+                Values.R1 = s.R1; Values.G1 = s.G1; Values.B1 = s.B1;
+                Values.R2 = s.R2; Values.G2 = s.G2; Values.B2 = s.B2;
+
+                int group = GroupOfEffect[Values.Effect];
+                _cmbGroup.SelectedIndex = group;
+                FillEffects(group);
+                SelectEffect(Values.Effect);
+
+                int brightness = Values.Brightness;
+                if (brightness < _barBrightness.Minimum) brightness = _barBrightness.Minimum;
+                if (brightness > _barBrightness.Maximum) brightness = _barBrightness.Maximum;
+                _barBrightness.Value = brightness;
+                _lblBrightness.Text = Values.Brightness.ToString();
+
+                int speed = Values.Speed;
+                if (speed < _barSpeed.Minimum) speed = _barSpeed.Minimum;
+                if (speed > _barSpeed.Maximum) speed = _barSpeed.Maximum;
+                _barSpeed.Value = speed;
+                _lblSpeed.Text = Values.Speed.ToString();
+
+                _barFps.Value = FpsIndex(Values.Fps);
+                _lblFps.Text = FpsSteps[_barFps.Value] + " fps";
+
+                RefreshSwatches();
+            }
+            finally
+            {
+                _suppress = false;
+            }
+        }
+
         /// <summary>改动通知：主窗体据此发对应指令。</summary>
         public event Action<LedChangeKind, LedSettings> Changed;
 

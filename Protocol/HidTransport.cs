@@ -574,6 +574,20 @@ namespace KeyboardOG
                     var dev = DeviceInfo.FromFrame(response);
                     return dev == null ? "设备信息（解析失败）" : "设备信息：" + dev.ToString();
 
+                case ResponseKind.LedBasic:
+                    var lb = LedBasicFrame.FromFrame(response);
+                    return lb == null ? L.T("查询结果·灯效（解析失败）", "LED settings (parse failed)")
+                        : L.F("查询结果·灯效：效果 {0} / 亮度 {1} / 速度 {2} / {3} fps",
+                              "LED: effect {0} / brightness {1} / speed {2} / {3} fps",
+                              lb.Effect, lb.Brightness, lb.Speed, lb.Fps);
+
+                case ResponseKind.LedColors:
+                    var lc = LedColorsFrame.FromFrame(response);
+                    return lc == null ? L.T("查询结果·灯效颜色（解析失败）", "LED colors (parse failed)")
+                        : L.F("查询结果·灯效颜色：主色 #{0:X2}{1:X2}{2:X2} / 副色 #{3:X2}{4:X2}{5:X2}",
+                              "LED colors: color1 #{0:X2}{1:X2}{2:X2} / color2 #{3:X2}{4:X2}{5:X2}",
+                              lc.R1, lc.G1, lc.B1, lc.R2, lc.G2, lc.B2);
+
                 case ResponseKind.LayoutItem:
                     var layoutItem = KeyLayoutItem.FromFrame(response);
                     if (layoutItem == null) return L.T("查询结果·布局（解析失败）", "layout item (parse failed)");
@@ -636,7 +650,8 @@ namespace KeyboardOG
                     {
                         var k = ResponseParser.KindOf(f);
                         if (k == ResponseKind.MapItem || k == ResponseKind.ParamItem
-                            || k == ResponseKind.LayoutItem || k == ResponseKind.DeviceInfo) n++;
+                            || k == ResponseKind.LayoutItem || k == ResponseKind.DeviceInfo
+                            || k == ResponseKind.LedBasic || k == ResponseKind.LedColors) n++;
                     }
                     return n;
                 }
