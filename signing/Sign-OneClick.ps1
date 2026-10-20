@@ -79,6 +79,23 @@ foreach ($f in @('KeyboardOG.exe', 'HIDComm.dll')) {
     if ($sig.Status -ne 'Valid') { $bad++ }
 }
 
+# ---------------------------------------------------------------------------
+# 去掉“来自 Internet”的 Zone.Identifier 标记。
+# 带这个标记的 exe 每次启动都会弹 “Open File - Security Warning / 是否运行此文件”，
+# 即使它已经用 LGGZ 证书签过名（对话框里会显示 Publisher: LGGZ）。
+# 从压缩包/网络位置复制、或某些同步工具写入时会带上这个标记。
+# ---------------------------------------------------------------------------
+$unblocked = 0
+Get-ChildItem $outDir -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+    $zone = Get-Item $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue
+    if ($zone) {
+        try { Unblock-File -LiteralPath $_.FullName -ErrorAction Stop; $unblocked++ } catch { }
+    }
+}
+if ($unblocked -gt 0) {
+    Write-Host ("  removed the 'from the Internet' mark on {0} file(s) in {1}" -f $unblocked, $outDir) -ForegroundColor Yellow
+}
+
 Write-Host ''
 if ($bad -eq 0) {
     Write-Host "done: binaries in $outDir are signed and ready to use." -ForegroundColor Green
