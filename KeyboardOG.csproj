@@ -152,4 +152,18 @@
     </None>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
+  <!--
+    编译后清掉“来自 Internet”标记（Zone.Identifier）。
+    带这个标记的 exe 用资源管理器/ShellExecute 启动时会弹
+    “Open File - Security Warning / 是否运行此文件”，即使签名有效。
+    这里在每次 Build 后自动跑一遍，保证 bin\Release 里的产物永远干净。
+  -->
+  <Target Name="RemoveMarkOfTheWeb" AfterTargets="Build">
+    <!-- 注意 TargetDir 以反斜杠结尾，直接放进 &quot;...&quot; 会把引号转义掉，所以末尾补一个点 -->
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\signing\Unblock-Files.ps1&quot; -Path &quot;$(TargetDir).&quot;"
+          IgnoreExitCode="true"
+          ContinueOnError="true"
+          StandardOutputImportance="low" />
+  </Target>
 </Project>
