@@ -1,4 +1,4 @@
-# Removing Windows warnings after moving the app
+﻿# Removing Windows warnings after moving the app
 
 > **Security notice.** An earlier revision of this repository published `LGGZ-CodeSign.pfx`
 > (commit `302a738`, "Add files via upload"), together with the password that used to be written
@@ -130,3 +130,20 @@ SmartScreen still blocks. There are only two options:
   warnings, and users just click "Run anyway" once for UAC and SmartScreen.
 * To remove trust later: `certlm.msc` (admin) → Trusted Root Certification Authorities / Trusted
   Publishers → delete `LGGZ`; per-user entries live in `certmgr.msc` → Current User.
+## 一键修复（推荐给使用者）
+
+双击 **`一键修复.cmd`**（仓库根目录或本目录各有一份）即可完成：
+
+1. 去掉 `bin\Release` 下所有文件的“来自 Internet”标记（不再弹安全警告）；
+2. 把 `LGGZ-CodeSign.cer` 导入受信任的根证书与受信任的发布者
+   （管理员权限装到本机，否则装到当前用户）；
+3. 校验 `KeyboardOG.exe` / `HIDComm.dll` 的签名并给出结论。
+
+实现是 `Fix-Signature-And-Unblock.ps1`，参数：
+
+| 参数 | 说明 |
+|---|---|
+| `-NoPause` | 结束时不等待回车（脚本调用用） |
+| `-Sign` | 签名无效时自动调用 `Sign-OneClick.ps1 -NoBuild` |
+| `-Path <目录>` | 指定要处理的输出目录（默认 `bin\Release`） |
+
