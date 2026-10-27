@@ -104,6 +104,14 @@ namespace KeyboardOG
         {
             return firmware.CompareTo(MinForBehavior) >= 0;
         }
+
+        /// <summary>连发参数（查询 / 写入 / 保存）从固件 1.11 开始有。</summary>
+        public static readonly FirmwareVersion MinForRapidParams = FirmwareVersion.Of(1, 1, 1);
+
+        public static bool SupportsRapidParams(FirmwareVersion firmware)
+        {
+            return firmware.CompareTo(MinForRapidParams) >= 0;
+        }
     }
 
     public static class Compatibility

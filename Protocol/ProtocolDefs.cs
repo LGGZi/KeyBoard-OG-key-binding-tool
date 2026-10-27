@@ -41,6 +41,8 @@ namespace KeyboardOG
         SetLedAccent = 0x09,// 即时设置副色：[1..3]=RGB
         SaveLed   = 0x0A,   // 保存灯效参数：[1]=0x5A 确认
         SetLedFps = 0x0B,   // 设置灯效刷新率：[1]=fps（10~200）
+        SetRapid  = 0x0C,   // 设置连发参数：[1]=开关 [2]=脉宽 [3..4]=间隔 [5..6]=预留
+        SaveRapid = 0x0D,   // 保存连发参数：[1]=0x6C 确认
     }
 
     /// <summary>
@@ -234,6 +236,9 @@ namespace KeyboardOG
         /// <summary>灯效参数保存时的确认字节（和固件里的 LED_PARAMS_MAGIC 一致）。</summary>
         public const byte LedSaveMagic = 0x5A;
 
+        /// <summary>连发参数保存时的确认字节（和固件 RAPID_SAVE_CONFIRM 一致）。</summary>
+        public const byte RapidSaveMagic = 0x6C;
+
         /// <summary>即时设置灯效（效果 / 亮度 / 速度 / 主色），不写 EEPROM。</summary>
         public static byte[] SetLed(byte effect, byte brightness, byte speed, byte r, byte g, byte b)
         {
@@ -317,6 +322,40 @@ namespace KeyboardOG
             d[1] = (byte)what;
             d[2] = (byte)scope;
             d[3] = key;
+            return d;
+        }
+
+        /// <summary>查询连发参数：QUERY_PARAM，Byte3=RAPID_TAB。</summary>
+        public static byte[] QueryRapidParams()
+        {
+            var d = New(HidCmd.Query);
+            d[1] = (byte)QueryTarget.Parameter;
+            d[2] = RapidParams.Target;
+            d[3] = 0;
+            return d;
+        }
+
+        /// <summary>
+        /// 写入连发参数（即时生效，不写 EEPROM）。
+        /// 开关（toggle）不在这里设置：固件只认键盘上的 0x2F 映射，上位机发了也不生效。
+        /// </summary>
+        public static byte[] SetRapid(int pulse, int interval, int variation)
+        {
+            var d = New(HidCmd.SetRapid);
+            d[1] = 0;   // 保留
+            d[2] = (byte)Math.Max(RapidParams.PulseMin, Math.Min(RapidParams.PulseMax, pulse));
+            d[3] = (byte)((interval >> 8) & 0xFF);
+            d[4] = (byte)(interval & 0xFF);
+            d[5] = (byte)((variation >> 8) & 0xFF);
+            d[6] = (byte)(variation & 0xFF);
+            return d;
+        }
+
+        /// <summary>把当前连发参数写进 EEPROM（固件保存前会强制开启）。</summary>
+        public static byte[] SaveRapid()
+        {
+            var d = New(HidCmd.SaveRapid);
+            d[1] = RapidSaveMagic;
             return d;
         }
 
@@ -801,6 +840,14 @@ namespace KeyboardOG
         }
 
         /// <summary>描述一个映射，用于日志和列表显示。</summary>
+        /// <summary>粘滞键自动注入的“切换开关”（0x1E）：键帽上不显示，列表里显示。</summary>
+        public static bool IsStickySwitch(Binding b)
+        {
+            return b != null
+                && b.Behavior == MapBehavior.Sticky
+                && (byte)b.Device == BehaviorCodes.StickySwitch;
+        }
+
         /// <summary>是不是“功能控制”映射（粘滞/连发的开关），而不是真正要输出的键。</summary>
         public static bool IsControl(Binding b)
         {
@@ -867,6 +914,60 @@ namespace KeyboardOG
         {
             return L.F("= {0} / 1000（满行程的 {1:0.0}%）", "= {0} / 1000 ({1:0.0}% of travel)",
                 value, value / 10.0);
+        }
+    }
+
+    /// <summary>连发参数的参数码（和 QUERY_PARAM 的 Byte3=RAPID_TAB 一起用）。</summary>
+    public enum RapidParamCode : byte
+    {
+        Toggle    = 0x10,
+        Pulse     = 0x11,
+        Interval  = 0x12,
+        Variation = 0x13,
+    }
+
+    /// <summary>
+    /// 连发参数（固件 RapidKeyArgs_t 的对应物）。
+    /// 查询：QUERY_PARAM + Byte3=RAPID_TAB；写入：CMD_SET_RAPID（即时）；保存：CMD_SAVE_RAPID（写 EEPROM）。
+    /// </summary>
+    public sealed class RapidParams
+    {
+        public const byte Target = 0x02;          // RAPID_TAB
+        public const int PulseMin = 1, PulseMax = 200;
+        public const int IntervalMin = 10, IntervalMax = 5000;
+        public const int VariationMin = 0, VariationMax = 200;
+
+        public bool Toggle = true;
+        public int Pulse = 15;
+        public int Interval = 100;
+        public int Variation = 10;
+
+        public RapidParams Clone()
+        {
+            return new RapidParams { Toggle = Toggle, Pulse = Pulse, Interval = Interval, Variation = Variation };
+        }
+
+        /// <summary>从参数回传帧里取连发参数（只认 [2] == RAPID_TAB 的帧）。</summary>
+        public static RapidParams FromFrames(IEnumerable<byte[]> frames)
+        {
+            var result = new RapidParams();
+            if (frames == null) return result;
+
+            foreach (var f in frames)
+            {
+                if (f == null || f.Length < 5) continue;
+                if (f[0] != 0x02 || f[2] != Target) continue;
+
+                int value = (f[3] << 8) | f[4];
+                switch ((RapidParamCode)f[1])
+                {
+                    case RapidParamCode.Toggle:    result.Toggle = value != 0; break;
+                    case RapidParamCode.Pulse:     result.Pulse = value; break;
+                    case RapidParamCode.Interval:  result.Interval = value; break;
+                    case RapidParamCode.Variation: result.Variation = value; break;
+                }
+            }
+            return result;
         }
     }
 

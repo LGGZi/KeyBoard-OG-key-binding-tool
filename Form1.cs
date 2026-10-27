@@ -41,8 +41,14 @@ namespace KeyboardOG
         private Label _lblBehaviorHint;
         private Panel _behaviorBody;
         private Label _lblRepeatParams;
-        private TextBox _txtRepeatInterval;
-        private TextBox _txtRepeatPulse;
+        private NumericUpDown _numRapidInterval;
+        private NumericUpDown _numRapidPulse;
+        private Button _btnWriteRapid;
+        private Button _btnSaveRapid;
+        private Label _lblRapidInterval;
+        private Label _lblRapidPulse;
+        private bool _rapidSupported;                 //固件 1.11+ 才有连发参数
+        private readonly RapidParams _rapidParams = new RapidParams();
         private MapBehavior _behaviorForNextPick = MapBehavior.None;
         private bool _behaviorSupported = false;
         private readonly Button[] _keyButtons = new Button[DeviceLimits.KeyCount];
@@ -403,8 +409,9 @@ namespace KeyboardOG
         /// </summary>
         private string KeySummary(int key)
         {
-            //功能控制映射（粘滞/连发开关）不在键帽上显示，只在右侧列表里体现
-            var list = _model[key].Where(b => !BindingCatalog.IsControl(b)).ToList();
+            //粘滞键自动注入的“切换开关”不在键帽上显示（它随粘滞键自动存在），
+            //但“功能开关”（0x1F / 0x2F）是用户单独绑的映射，要正常显示。
+            var list = _model[key].Where(b => !BindingCatalog.IsStickySwitch(b)).ToList();
             int n = list.Count;
             if (n <= 0) return string.Empty;
             if (n == 1) return BindingCatalog.ShortText(list[0]);
@@ -1258,7 +1265,9 @@ namespace KeyboardOG
 
             //按键行为（粘滞键 / 连发）需要固件 1.10 起；老固件照常能用普通映射
             _behaviorSupported = FeatureGate.SupportsBehavior(fw);
+            _rapidSupported = FeatureGate.SupportsRapidParams(fw);
             UpdateBehaviorUi();
+            UpdateBehaviorVisibility();   //连发参数那几项要不要能点，取决于固件版本
 
             //固件会在设备信息 [6] 里写"我要求的上位机版本"（0 = 旧固件，没有要求）
             bool hostTooOld = false;
@@ -1572,6 +1581,32 @@ namespace KeyboardOG
 
                 int paramCount = ImportParameters(paramOutcome);
                 RefreshParamDisplay();
+
+                // ---- 3. 连发参数（固件 1.11+，参数查询的一个 case）----
+                if (_rapidSupported)
+                {
+                    var rapidReq = CommandRequest.Of("QUERY/RAPID",
+                        L.T("读取连发参数", "read repeat parameters"),
+                        CommandBuilder.QueryRapidParams(), 0);
+                    var rapidOutcome = await _transport.SendAndCollectAsync(rapidReq, 1500, null);
+
+                    if (rapidOutcome != null && rapidOutcome.Sent)
+                    {
+                        var parsed = RapidParams.FromFrames(rapidOutcome.Frames);
+                        _rapidParams.Toggle = parsed.Toggle;
+                        _rapidParams.Interval = parsed.Interval;
+                        _rapidParams.Pulse = parsed.Pulse;
+                        _rapidParams.Variation = parsed.Variation;
+                        ApplyRapidParamsToUi();
+                        SetRapidInputsVisible(_cboBehavior.SelectedIndex == 1);
+
+                        _log.Add(LogKind.Info, L.T("连发参数", "repeat params"),
+                            L.F("连发：开关 {0} / 间隔 {1}ms / 脉宽 {2}ms / 预留 {3}",
+                                "repeat: toggle {0}, interval {1}ms, pulse {2}ms, reserved {3}",
+                                parsed.Toggle ? 1 : 0, parsed.Interval, parsed.Pulse, parsed.Variation),
+                            null, LogState.Done);
+                    }
+                }
 
                 string tail = mapOutcome.SawFin && (paramOutcome == null || paramOutcome.SawFin)
                     ? ""
@@ -2373,20 +2408,43 @@ namespace KeyboardOG
                 Dock = DockStyle.None,
                 ForeColor = Color.FromArgb(70, 70, 75),
             };
-            _txtRepeatInterval = new TextBox
+            _lblRapidInterval = new Label { Text = L.T("间隔", "Interval"), Dock = DockStyle.None, TextAlign = ContentAlignment.MiddleLeft };
+            _lblRapidPulse = new Label { Text = L.T("脉宽", "Pulse"), Dock = DockStyle.None, TextAlign = ContentAlignment.MiddleLeft };
+
+            _numRapidInterval = new NumericUpDown
             {
                 Dock = DockStyle.None,
-                ReadOnly = true,
-                Enabled = false,
-                Text = L.F("间隔 {0} ms", "interval {0} ms", 100),
+                Minimum = RapidParams.IntervalMin,
+                Maximum = RapidParams.IntervalMax,
+                Increment = 10,
+                Value = 100,
+                TextAlign = HorizontalAlignment.Center,
             };
-            _txtRepeatPulse = new TextBox
+            _numRapidPulse = new NumericUpDown
             {
                 Dock = DockStyle.None,
-                ReadOnly = true,
-                Enabled = false,
-                Text = L.F("脉宽 {0} ms", "pulse {0} ms", 15),
+                Minimum = RapidParams.PulseMin,
+                Maximum = RapidParams.PulseMax,
+                Increment = 1,
+                Value = 15,
+                TextAlign = HorizontalAlignment.Center,
             };
+            _btnWriteRapid = new Button
+            {
+                Text = L.T("写入参数（即时生效）", "Write (apply now)"),
+                Dock = DockStyle.None,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = PickerPalette.RepeatFill,
+                ForeColor = PickerPalette.RepeatText,
+            };
+            _btnSaveRapid = new Button
+            {
+                Text = L.T("保存到键盘", "Save to keyboard"),
+                Dock = DockStyle.None,
+                FlatStyle = FlatStyle.Flat,
+            };
+            _btnWriteRapid.Click += async (s, e) => await WriteRapidAsync(false);
+            _btnSaveRapid.Click += async (s, e) => await WriteRapidAsync(true);
 
             _lblBehaviorHint = new Label
             {
@@ -2399,8 +2457,12 @@ namespace KeyboardOG
             _behaviorBody.Controls.Add(_btnStickyToggle);
             _behaviorBody.Controls.Add(_btnRepeatToggle);
             _behaviorBody.Controls.Add(_lblRepeatParams);
-            _behaviorBody.Controls.Add(_txtRepeatInterval);
-            _behaviorBody.Controls.Add(_txtRepeatPulse);
+            _behaviorBody.Controls.Add(_lblRapidInterval);
+            _behaviorBody.Controls.Add(_lblRapidPulse);
+            _behaviorBody.Controls.Add(_numRapidInterval);
+            _behaviorBody.Controls.Add(_numRapidPulse);
+            _behaviorBody.Controls.Add(_btnWriteRapid);
+            _behaviorBody.Controls.Add(_btnSaveRapid);
             _behaviorBody.Controls.Add(_lblBehaviorHint);
             _grpBehavior.Controls.Add(_behaviorBody);
 
@@ -2441,10 +2503,70 @@ namespace KeyboardOG
             _chkBehaviorKeep.Text = L.T("将接下来选中的按键设置为…", "Apply to the next picked keys");
             _btnStickyToggle.Text = L.T("粘滞键开关", "Sticky switch");
             _btnRepeatToggle.Text = L.T("连发开关", "Repeat switch");
-            _lblRepeatParams.Text = L.T("连发参数（待接入）", "Repeat parameters (coming later)");
-            _txtRepeatInterval.Text = L.F("间隔 {0} ms", "interval {0} ms", 100);
-            _txtRepeatPulse.Text = L.F("脉宽 {0} ms", "pulse {0} ms", 15);
+            _lblRepeatParams.Text = L.T("连发参数（固件 1.11+）", "Repeat parameters (firmware 1.11+)");
+            _lblRapidInterval.Text = L.T("间隔", "Interval");
+            _lblRapidPulse.Text = L.T("脉宽", "Pulse");
+            _btnWriteRapid.Text = L.T("写入参数（即时生效）", "Write (apply now)");
+            _btnSaveRapid.Text = L.T("保存到键盘", "Save to keyboard");
             UpdateBehaviorUi();
+        }
+
+        /// <summary>连发参数那几个控件：只有“连发”选中、且固件支持时才可见 / 可用。</summary>
+        private void SetRapidInputsVisible(bool on)
+        {
+            bool enable = on && _rapidSupported && _transport.IsConnected;
+
+            if (_lblRapidInterval != null) _lblRapidInterval.Visible = on;
+            if (_lblRapidPulse != null) _lblRapidPulse.Visible = on;
+            if (_numRapidInterval != null) { _numRapidInterval.Visible = on; _numRapidInterval.Enabled = enable; }
+            if (_numRapidPulse != null) { _numRapidPulse.Visible = on; _numRapidPulse.Enabled = enable; }
+            if (_btnWriteRapid != null) { _btnWriteRapid.Visible = on; _btnWriteRapid.Enabled = enable; }
+            if (_btnSaveRapid != null) { _btnSaveRapid.Visible = on; _btnSaveRapid.Enabled = enable; }
+        }
+
+        private void ApplyRapidParamsToUi()
+        {
+            if (_numRapidInterval == null) return;
+
+            int interval = Math.Max(RapidParams.IntervalMin, Math.Min(RapidParams.IntervalMax, _rapidParams.Interval));
+            int pulse = Math.Max(RapidParams.PulseMin, Math.Min(RapidParams.PulseMax, _rapidParams.Pulse));
+            _numRapidInterval.Value = interval;
+            _numRapidPulse.Value = pulse;
+        }
+
+        /// <summary>把界面上的连发参数写进键盘；save = true 时再发一条保存指令（写 EEPROM）。</summary>
+        private async Task WriteRapidAsync(bool save)
+        {
+            if (!_rapidSupported)
+            {
+                SetStatus(L.T("当前固件不支持连发参数（需要 1.11 或更新）。",
+                              "This firmware does not support repeat parameters (1.11+)."));
+                return;
+            }
+
+            _rapidParams.Interval = (int)_numRapidInterval.Value;
+            _rapidParams.Pulse = (int)_numRapidPulse.Value;
+
+            var set = CommandRequest.Of("SET/RAPID",
+                L.F("连发参数：间隔 {0}ms / 脉宽 {1}ms（开关由键盘映射控制）",
+                    "repeat: interval {0}ms, pulse {1}ms (toggle is keyboard-only)",
+                    _rapidParams.Interval, _rapidParams.Pulse),
+                CommandBuilder.SetRapid(_rapidParams.Pulse, _rapidParams.Interval, _rapidParams.Variation), 0);
+
+            if (!await SendCommandAsync(set)) return;
+
+            if (save)
+            {
+                var saveReq = CommandRequest.Of("SAVE/RAPID",
+                    L.T("把连发参数保存到 EEPROM", "save repeat parameters to EEPROM"),
+                    CommandBuilder.SaveRapid(), 0);
+                if (!await SendCommandAsync(saveReq)) return;
+            }
+
+            SetStatus(save
+                ? L.T("连发参数已写入并保存到键盘。", "Repeat parameters written and saved.")
+                : L.T("连发参数已写入（重新插拔前不会保留）。", "Repeat parameters applied (not saved)."));
+            SetRapidInputsVisible(_cboBehavior.SelectedIndex == 1);
         }
 
         /// <summary>右栏内容按当前选择重排：只有选中项自己的控件可见。</summary>
@@ -2464,8 +2586,14 @@ namespace KeyboardOG
             {
                 _btnRepeatToggle.SetBounds(4, y, w, 30); y += 34;
                 _lblRepeatParams.SetBounds(4, y, w, 18); y += 20;
-                _txtRepeatInterval.SetBounds(4, y, w, 23); y += 27;
-                _txtRepeatPulse.SetBounds(4, y, w, 23); y += 27;
+
+                _lblRapidInterval.SetBounds(4, y, 52, 23);
+                _numRapidInterval.SetBounds(58, y, w - 58, 23); y += 27;
+                _lblRapidPulse.SetBounds(4, y, 52, 23);
+                _numRapidPulse.SetBounds(58, y, w - 58, 23); y += 29;
+
+                _btnWriteRapid.SetBounds(4, y, w, 28); y += 32;
+                _btnSaveRapid.SetBounds(4, y, w, 28); y += 34;
             }
             else
             {
@@ -2492,8 +2620,7 @@ namespace KeyboardOG
             _btnRepeatToggle.Visible = repeat;
 
             if (_lblRepeatParams != null) _lblRepeatParams.Visible = repeat;
-            if (_txtRepeatInterval != null) _txtRepeatInterval.Visible = repeat;
-            if (_txtRepeatPulse != null) _txtRepeatPulse.Visible = repeat;
+            SetRapidInputsVisible(repeat);
 
             LayoutBehaviorContent();
         }
@@ -2545,6 +2672,8 @@ namespace KeyboardOG
                               "Sticky keys take 2 slots: switch + key."));
                 lines.Add(L.T("开关按钮把 0x1F / 0x2F 映射加到当前按键，按一次切换功能开关。",
                               "Switch buttons add the 0x1F / 0x2F mapping to the current key."));
+                lines.Add(L.T("连发开关只能由键盘映射切换，上位机不会改动它。",
+                              "The repeat toggle is keyboard-only; the host never changes it."));
             }
             _lblBehaviorHint.Text = string.Join("\r\n", lines.ToArray());
         }
