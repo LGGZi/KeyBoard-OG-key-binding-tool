@@ -1,4 +1,4 @@
-namespace KeyboardOG
+﻿namespace KeyboardOG
 {
     partial class Form1
     {
@@ -121,7 +121,7 @@ namespace KeyboardOG
             this.panelTop.Dock = System.Windows.Forms.DockStyle.Top;
             this.panelTop.Location = new System.Drawing.Point(0, 0);
             this.panelTop.Name = "panelTop";
-            this.panelTop.Size = new System.Drawing.Size(1480, 104);
+            this.panelTop.Size = new System.Drawing.Size(1700, 104);
             this.panelTop.TabIndex = 0;
             // 
             // lblConnBadge
@@ -149,18 +149,19 @@ namespace KeyboardOG
             // 
             // lblFirmware
             // 
-            this.lblFirmware.Location = new System.Drawing.Point(1046, 11);
+            this.lblFirmware.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblFirmware.Location = new System.Drawing.Point(1266, 11);
             this.lblFirmware.Name = "lblFirmware";
             this.lblFirmware.Size = new System.Drawing.Size(202, 90);
             this.lblFirmware.TabIndex = 13;
             this.lblFirmware.TextAlign = System.Drawing.ContentAlignment.TopRight;
-            this.lblFirmware.Click += new System.EventHandler(this.lblFirmware_Click);
             // 
             // lblQueue
             // 
             this.lblQueue.AutoSize = true;
             this.lblQueue.ForeColor = System.Drawing.Color.DimGray;
-            this.lblQueue.Location = new System.Drawing.Point(1252, 50);
+            this.lblQueue.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblQueue.Location = new System.Drawing.Point(1472, 50);
             this.lblQueue.Name = "lblQueue";
             this.lblQueue.Size = new System.Drawing.Size(51, 17);
             this.lblQueue.TabIndex = 9;
@@ -179,7 +180,8 @@ namespace KeyboardOG
             // 
             // btnSettings
             // 
-            this.btnSettings.Location = new System.Drawing.Point(1256, 11);
+            this.btnSettings.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnSettings.Location = new System.Drawing.Point(1476, 11);
             this.btnSettings.Name = "btnSettings";
             this.btnSettings.Size = new System.Drawing.Size(96, 28);
             this.btnSettings.TabIndex = 11;
@@ -188,7 +190,8 @@ namespace KeyboardOG
             // 
             // btnOpenLog
             // 
-            this.btnOpenLog.Location = new System.Drawing.Point(1352, 11);
+            this.btnOpenLog.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnOpenLog.Location = new System.Drawing.Point(1572, 11);
             this.btnOpenLog.Name = "btnOpenLog";
             this.btnOpenLog.Size = new System.Drawing.Size(116, 28);
             this.btnOpenLog.TabIndex = 4;
@@ -257,7 +260,7 @@ namespace KeyboardOG
             this.panelActions.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.panelActions.Location = new System.Drawing.Point(0, 808);
             this.panelActions.Name = "panelActions";
-            this.panelActions.Size = new System.Drawing.Size(1480, 92);
+            this.panelActions.Size = new System.Drawing.Size(1700, 92);
             this.panelActions.TabIndex = 1;
             // 
             // btnClearAll
@@ -295,7 +298,8 @@ namespace KeyboardOG
             // 
             this.lblGlobalTitle.AutoSize = true;
             this.lblGlobalTitle.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(40)))), ((int)(((byte)(90)))), ((int)(((byte)(160)))));
-            this.lblGlobalTitle.Location = new System.Drawing.Point(856, 8);
+            this.lblGlobalTitle.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblGlobalTitle.Location = new System.Drawing.Point(1076, 8);
             this.lblGlobalTitle.Name = "lblGlobalTitle";
             this.lblGlobalTitle.Size = new System.Drawing.Size(96, 17);
             this.lblGlobalTitle.TabIndex = 4;
@@ -304,14 +308,16 @@ namespace KeyboardOG
             // sepA
             // 
             this.sepA.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(210)))), ((int)(((byte)(210)))), ((int)(((byte)(210)))));
-            this.sepA.Location = new System.Drawing.Point(1108, 12);
+            this.sepA.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.sepA.Location = new System.Drawing.Point(1328, 12);
             this.sepA.Name = "sepA";
             this.sepA.Size = new System.Drawing.Size(1, 72);
             this.sepA.TabIndex = 3;
             // 
             // btnWriteAll
             // 
-            this.btnWriteAll.Location = new System.Drawing.Point(856, 30);
+            this.btnWriteAll.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnWriteAll.Location = new System.Drawing.Point(1076, 30);
             this.btnWriteAll.Name = "btnWriteAll";
             this.btnWriteAll.Size = new System.Drawing.Size(232, 44);
             this.btnWriteAll.TabIndex = 2;
@@ -325,7 +331,8 @@ namespace KeyboardOG
             this.btnWriteKey.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnWriteKey.Font = new System.Drawing.Font("Microsoft YaHei UI", 10.5F, System.Drawing.FontStyle.Bold);
             this.btnWriteKey.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(15)))), ((int)(((byte)(60)))), ((int)(((byte)(130)))));
-            this.btnWriteKey.Location = new System.Drawing.Point(1128, 28);
+            this.btnWriteKey.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnWriteKey.Location = new System.Drawing.Point(1348, 28);
             this.btnWriteKey.Name = "btnWriteKey";
             this.btnWriteKey.Size = new System.Drawing.Size(340, 44);
             this.btnWriteKey.TabIndex = 1;
@@ -337,7 +344,7 @@ namespace KeyboardOG
             this.lblSingleTitle.AutoSize = true;
             this.lblSingleTitle.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F, System.Drawing.FontStyle.Bold);
             this.lblSingleTitle.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(20)))), ((int)(((byte)(80)))), ((int)(((byte)(160)))));
-            this.lblSingleTitle.Location = new System.Drawing.Point(1128, 6);
+            this.lblSingleTitle.Location = new System.Drawing.Point(1348, 4);
             this.lblSingleTitle.Name = "lblSingleTitle";
             this.lblSingleTitle.Size = new System.Drawing.Size(195, 19);
             this.lblSingleTitle.TabIndex = 0;
@@ -350,7 +357,7 @@ namespace KeyboardOG
             this.panelMain.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelMain.Location = new System.Drawing.Point(0, 104);
             this.panelMain.Name = "panelMain";
-            this.panelMain.Size = new System.Drawing.Size(1480, 704);
+            this.panelMain.Size = new System.Drawing.Size(1700, 704);
             this.panelMain.TabIndex = 2;
             // 
             // panelRight
@@ -360,7 +367,7 @@ namespace KeyboardOG
             this.panelRight.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelRight.Location = new System.Drawing.Point(364, 0);
             this.panelRight.Name = "panelRight";
-            this.panelRight.Size = new System.Drawing.Size(1116, 704);
+            this.panelRight.Size = new System.Drawing.Size(1336, 704);
             this.panelRight.TabIndex = 1;
             // 
             // panelPickerHost
@@ -370,7 +377,7 @@ namespace KeyboardOG
             this.panelPickerHost.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelPickerHost.Location = new System.Drawing.Point(0, 0);
             this.panelPickerHost.Name = "panelPickerHost";
-            this.panelPickerHost.Size = new System.Drawing.Size(1116, 498);
+            this.panelPickerHost.Size = new System.Drawing.Size(1336, 498);
             this.panelPickerHost.TabIndex = 0;
             // 
             // tabsPicker
@@ -383,7 +390,7 @@ namespace KeyboardOG
             this.tabsPicker.Location = new System.Drawing.Point(0, 0);
             this.tabsPicker.Name = "tabsPicker";
             this.tabsPicker.SelectedIndex = 0;
-            this.tabsPicker.Size = new System.Drawing.Size(1116, 472);
+            this.tabsPicker.Size = new System.Drawing.Size(1336, 472);
             this.tabsPicker.TabIndex = 0;
             // 
             // tabKeyboard
@@ -404,7 +411,7 @@ namespace KeyboardOG
             this.panelKbScroll.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelKbScroll.Location = new System.Drawing.Point(3, 3);
             this.panelKbScroll.Name = "panelKbScroll";
-            this.panelKbScroll.Size = new System.Drawing.Size(1102, 436);
+            this.panelKbScroll.Size = new System.Drawing.Size(1322, 436);
             this.panelKbScroll.TabIndex = 0;
             // 
             // keyboard1
@@ -419,10 +426,10 @@ namespace KeyboardOG
             // tabMouse
             // 
             this.tabMouse.Controls.Add(this.mousePicker);
-            this.tabMouse.Location = new System.Drawing.Point(4, 22);
+            this.tabMouse.Location = new System.Drawing.Point(4, 26);
             this.tabMouse.Name = "tabMouse";
             this.tabMouse.Padding = new System.Windows.Forms.Padding(3);
-            this.tabMouse.Size = new System.Drawing.Size(1108, 446);
+            this.tabMouse.Size = new System.Drawing.Size(1108, 442);
             this.tabMouse.TabIndex = 1;
             this.tabMouse.Text = "鼠标";
             this.tabMouse.UseVisualStyleBackColor = true;
@@ -439,10 +446,10 @@ namespace KeyboardOG
             // tabGamepad
             // 
             this.tabGamepad.Controls.Add(this.gamepadPicker);
-            this.tabGamepad.Location = new System.Drawing.Point(4, 22);
+            this.tabGamepad.Location = new System.Drawing.Point(4, 26);
             this.tabGamepad.Name = "tabGamepad";
             this.tabGamepad.Padding = new System.Windows.Forms.Padding(3);
-            this.tabGamepad.Size = new System.Drawing.Size(1108, 446);
+            this.tabGamepad.Size = new System.Drawing.Size(1108, 442);
             this.tabGamepad.TabIndex = 2;
             this.tabGamepad.Text = "手柄";
             this.tabGamepad.UseVisualStyleBackColor = true;
@@ -459,10 +466,10 @@ namespace KeyboardOG
             // tabConsumer
             // 
             this.tabConsumer.Controls.Add(this.consumerPicker);
-            this.tabConsumer.Location = new System.Drawing.Point(4, 22);
+            this.tabConsumer.Location = new System.Drawing.Point(4, 26);
             this.tabConsumer.Name = "tabConsumer";
             this.tabConsumer.Padding = new System.Windows.Forms.Padding(3);
-            this.tabConsumer.Size = new System.Drawing.Size(1108, 446);
+            this.tabConsumer.Size = new System.Drawing.Size(1108, 442);
             this.tabConsumer.TabIndex = 3;
             this.tabConsumer.Text = "多媒体";
             this.tabConsumer.UseVisualStyleBackColor = true;
@@ -495,9 +502,8 @@ namespace KeyboardOG
             this.hallPanel.Location = new System.Drawing.Point(0, 498);
             this.hallPanel.Name = "hallPanel";
             this.hallPanel.SelectedKey = 0;
-            this.hallPanel.Size = new System.Drawing.Size(1116, 206);
+            this.hallPanel.Size = new System.Drawing.Size(1336, 206);
             this.hallPanel.TabIndex = 1;
-            this.hallPanel.Load += new System.EventHandler(this.hallPanel_Load);
             // 
             // panelLeft
             // 
@@ -703,12 +709,12 @@ namespace KeyboardOG
             // Form1
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
-            this.ClientSize = new System.Drawing.Size(1480, 900);
+            this.ClientSize = new System.Drawing.Size(1700, 900);
             this.Controls.Add(this.panelMain);
             this.Controls.Add(this.panelActions);
             this.Controls.Add(this.panelTop);
             this.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.MinimumSize = new System.Drawing.Size(1180, 760);
+            this.MinimumSize = new System.Drawing.Size(1500, 820);   //再窄的话磁轴参数四块会挤到一起
             this.Name = "Form1";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "KeyboardOG 改键 / 改参数工具";

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -77,7 +77,7 @@ namespace KeyboardOG
         bool SelectionMode { get; set; }
 
         /// <summary>高亮已经选中的偏移量集合（用 Picked 那套偏移量，即键盘用 Usage ID）。</summary>
-        void SetSelection(IList<byte> offsets);
+        void SetSelection(IList<Binding> bindings);
     }
 
     /// <summary>选键控件统一配色。</summary>
@@ -87,14 +87,51 @@ namespace KeyboardOG
         public static readonly Color Modifier     = Color.FromArgb(225, 225, 225);
         public static readonly Color Hover        = Color.FromArgb(240, 248, 255);
         public static readonly Color Pressed      = Color.FromArgb(150, 200, 255);
-        public static readonly Color Selected     = Color.FromArgb(120, 195, 130);
-        public static readonly Color SelectedEdge = Color.FromArgb(46, 125, 60);
+        public static readonly Color Selected     = Color.FromArgb(205, 228, 255);   //普通映射：淡蓝
+        public static readonly Color SelectedEdge = Color.FromArgb(70, 130, 190);
+        public static readonly Color StickyFill   = Color.FromArgb(198, 240, 205);   //粘滞键：绿
+        public static readonly Color StickyEdge   = Color.FromArgb(46, 125, 60);
+        public static readonly Color StickyText   = Color.FromArgb(20, 70, 30);
+        public static readonly Color RepeatFill   = Color.FromArgb(232, 219, 250);   //连发键：淡紫
+        public static readonly Color RepeatEdge   = Color.FromArgb(120, 80, 175);
+        public static readonly Color RepeatText   = Color.FromArgb(70, 40, 110);
         public static readonly Color Disabled     = Color.FromArgb(234, 234, 234);
         public static readonly Color DisabledText = Color.FromArgb(170, 170, 170);
         public static readonly Color Text         = Color.FromArgb(30, 30, 30);
         public static readonly Color Body         = Color.FromArgb(248, 248, 250);
         public static readonly Color Edge         = Color.FromArgb(150, 150, 155);
         public static readonly Color SubText      = Color.FromArgb(110, 110, 115);
+
+        /// <summary>按行为取填充色（普通淡蓝 / 粘滞绿 / 连发淡紫）。</summary>
+        public static Color FillFor(MapBehavior behavior)
+        {
+            switch (behavior)
+            {
+                case MapBehavior.Sticky: return StickyFill;
+                case MapBehavior.Repeat: return RepeatFill;
+                default: return Selected;
+            }
+        }
+
+        public static Color EdgeFor(MapBehavior behavior)
+        {
+            switch (behavior)
+            {
+                case MapBehavior.Sticky: return StickyEdge;
+                case MapBehavior.Repeat: return RepeatEdge;
+                default: return SelectedEdge;
+            }
+        }
+
+        public static Color TextFor(MapBehavior behavior)
+        {
+            switch (behavior)
+            {
+                case MapBehavior.Sticky: return StickyText;
+                case MapBehavior.Repeat: return RepeatText;
+                default: return Text;
+            }
+        }
     }
 
     /// <summary>鼠标 / 手柄 / 多媒体控件共用的绘制与命中测试辅助。</summary>
@@ -130,7 +167,7 @@ namespace KeyboardOG
         /// 之前主标题的矩形占满整个高度、副标题又画在底部，两者必然叠字 —— 这次修掉。
         /// </summary>
         public static void Pad(Graphics g, Rectangle rect, string text, string sub,
-                               bool selected, bool enabled, bool hover, bool circle)
+                               MapBehavior behavior, bool enabled, bool hover, bool circle)
         {
             Color fill, edge, fore;
             if (!enabled)
@@ -139,11 +176,11 @@ namespace KeyboardOG
                 edge = Color.FromArgb(205, 205, 205);
                 fore = PickerPalette.DisabledText;
             }
-            else if (selected)
+            else if (behavior != MapBehavior.None)
             {
-                fill = PickerPalette.Selected;
-                edge = PickerPalette.SelectedEdge;
-                fore = Color.FromArgb(20, 60, 25);
+                fill = PickerPalette.FillFor(behavior);
+                edge = PickerPalette.EdgeFor(behavior);
+                fore = PickerPalette.TextFor(behavior);
             }
             else if (hover)
             {
@@ -163,7 +200,7 @@ namespace KeyboardOG
                 ? EllipsePath(rect)
                 : RoundedRect(rect, Math.Min(10, Math.Min(rect.Width, rect.Height) / 3)))
             using (var brush = new SolidBrush(fill))
-            using (var pen = new Pen(edge, selected ? 2f : 1f))
+            using (var pen = new Pen(edge, behavior != MapBehavior.None ? 2f : 1f))
             {
                 g.FillPath(brush, path);
                 g.DrawPath(pen, path);

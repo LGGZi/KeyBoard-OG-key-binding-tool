@@ -62,7 +62,7 @@ namespace KeyboardOG
     /// <summary>本上位机软件的版本号（和固件同一套格式，便于对照）。</summary>
     public static class AppVersion
     {
-        // 版本号只有一个来源：csproj 的 AssemblyVersion（1.0.7.0 -> 1.07）。
+        // 版本号只有一个来源：AssemblyInfo.cs 的 AssemblyVersion（1.10.0.0 -> 1.10）。
         // 这里不再手写常量，避免"程序里写着 1.02、文件属性是 1.07"这种不一致。
         public static readonly FirmwareVersion Current = FromAssembly();
 
@@ -91,6 +91,21 @@ namespace KeyboardOG
     /// 小于 Min 就是"固件过老"，大于 Max 就是"固件过新"。
     /// 表里没有本软件的版本时，用整张表的范围当兜底（至少能说清是偏旧还是偏新）。
     /// </summary>
+    /// <summary>
+    /// 按功能判断固件是否支持 —— 比"软件 ↔ 固件范围表"更适合新增功能：
+    /// 老固件照常能用（只是没有新功能），新功能单独卡版本。
+    /// </summary>
+    public static class FeatureGate
+    {
+        /// <summary>粘滞键 / 连发（behavior 高 4 位 + 连发参数区）从固件 1.10 开始有。</summary>
+        public static readonly FirmwareVersion MinForBehavior = FirmwareVersion.Of(1, 1, 0);
+
+        public static bool SupportsBehavior(FirmwareVersion firmware)
+        {
+            return firmware.CompareTo(MinForBehavior) >= 0;
+        }
+    }
+
     public static class Compatibility
     {
         public sealed class Entry
@@ -105,6 +120,16 @@ namespace KeyboardOG
         // 发新软件版本时往上加一行（越靠前越新）。
         private static readonly Entry[] Table =
         {
+            // 软件 1.10：支持固件 1.10 ~ 1.57（粘滞键 / 连发：behavior 高 4 位 + 连发参数区）
+            // 1.10 以前没有 behavior，新软件直接按“固件版本过老”提示，不再兼容
+            // 注：版本号和固件用同一套 2|3|3 编码，最后一段只有 3 位，写 1.0.8.0 会被截成 1.00
+            new Entry
+            {
+                Software    = FirmwareVersion.Of(1, 1, 0),
+                MinFirmware = FirmwareVersion.Of(1, 1, 0),
+                MaxFirmware = FirmwareVersion.Of(1, 5, 7),
+                Note        = "sticky keys / auto repeat (behaviour nibble, repeat params in EEPROM)",
+            },
             // 软件 1.07：支持固件 1.00 ~ 1.57（布局上传 / 灯效指令 / 灯效查询）
             new Entry
             {

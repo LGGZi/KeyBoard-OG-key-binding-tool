@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -155,7 +155,7 @@ namespace KeyboardOG
         // ============================================================
         private readonly Dictionary<string, Button> _keyButtons = new Dictionary<string, Button>();
         private readonly Dictionary<string, bool> _keyStates = new Dictionary<string, bool>();
-        private readonly HashSet<int> _selectedHids = new HashSet<int>();
+        private readonly Dictionary<int, MapBehavior> _selectedHids = new Dictionary<int, MapBehavior>();
         private readonly List<Font> _ownedFonts = new List<Font>();
         private readonly Dictionary<Button, FontStyle> _buttonFontStyle = new Dictionary<Button, FontStyle>();
         private bool _selectionMode = true;
@@ -539,11 +539,19 @@ namespace KeyboardOG
             }
         }
 
-        public void SetSelection(IList<byte> offsets)
+        public void SetSelection(IList<Binding> bindings)
         {
             _selectedHids.Clear();
-            if (offsets != null)
-                foreach (var o in offsets) _selectedHids.Add(o);
+            if (bindings != null)
+            {
+                foreach (var b in bindings)
+                {
+                    int hid = BindingCatalog.ToPickerOffset(Device, b.Offset);
+                    MapBehavior old;
+                    if (!_selectedHids.TryGetValue(hid, out old) || old == MapBehavior.None)
+                        _selectedHids[hid] = b.Behavior;
+                }
+            }
             RefreshKeyColors();
         }
 
@@ -557,7 +565,8 @@ namespace KeyboardOG
                 int hid = GetHidId(key);
 
                 bool supported = IsHidIdSupported(hid);
-                bool selected = _selectedHids.Contains(hid);
+                MapBehavior behavior;
+                bool selected = _selectedHids.TryGetValue(hid, out behavior);
 
                 if (!_selectionMode)
                 {
@@ -576,10 +585,10 @@ namespace KeyboardOG
                     continue;
                 }
 
-                btn.ForeColor = PickerPalette.Text;
+                btn.ForeColor = selected ? PickerPalette.TextFor(behavior) : PickerPalette.Text;
                 ApplyFont(btn, CalcFontSize(btn.Text, btn.Width), FontStyle.Regular);
                 btn.Cursor = Cursors.Hand;
-                btn.BackColor = selected ? PickerPalette.Selected : BaseColor(key);
+                btn.BackColor = selected ? PickerPalette.FillFor(behavior) : BaseColor(key);
             }
         }
 
@@ -594,7 +603,7 @@ namespace KeyboardOG
         /// <summary>当前选中的 HID Usage 列表。</summary>
         public List<byte> SelectedOffsets
         {
-            get { return _selectedHids.Select(h => (byte)h).ToList(); }
+            get { return _selectedHids.Keys.Select(h => (byte)h).ToList(); }
         }
     }
 }

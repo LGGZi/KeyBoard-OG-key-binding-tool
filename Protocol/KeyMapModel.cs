@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -42,9 +42,21 @@ namespace KeyboardOG
         {
             var list = _slots[key];
             if (list.Count >= DeviceLimits.MaxBindingsPerKey) return false;
-            if (list.Any(b => b.Device == binding.Device && b.Offset == binding.Offset)) return false;
+            if (list.Any(b => b.Device == binding.Device && b.Offset == binding.Offset
+                              && b.Behavior == binding.Behavior)) return false;
 
             list.Add(binding.Clone());
+            return true;
+        }
+
+        /// <summary>插到指定位置（自动注入的粘滞键切换开关要排在最前面用）。</summary>
+        public bool Insert(int key, int index, Binding binding)
+        {
+            var list = _slots[key];
+            if (list.Count >= DeviceLimits.MaxBindingsPerKey) return false;
+            if (index < 0) index = 0;
+            if (index > list.Count) index = list.Count;
+            list.Insert(index, binding.Clone());
             return true;
         }
 
@@ -59,10 +71,11 @@ namespace KeyboardOG
         /// 按 (device, offset) 删除一条映射 —— 给选键控件的“再点一下取消选中”用。
         /// 返回是否真的删掉了。
         /// </summary>
-        public bool Remove(int key, MapDevice device, byte offset)
+        public bool Remove(int key, MapDevice device, byte offset, MapBehavior behavior = MapBehavior.None)
         {
             var list = _slots[key];
-            int index = list.FindIndex(b => b.Device == device && b.Offset == offset);
+            int index = list.FindIndex(b => b.Device == device && b.Offset == offset
+                                         && b.Behavior == behavior);
             if (index < 0) return false;
 
             list.RemoveAt(index);
@@ -70,9 +83,10 @@ namespace KeyboardOG
         }
 
         /// <summary>找某个 (device, offset) 在列表里的位置，没有返回 -1。</summary>
-        public int IndexOf(int key, MapDevice device, byte offset)
+        public int IndexOf(int key, MapDevice device, byte offset, MapBehavior behavior = MapBehavior.None)
         {
-            return _slots[key].FindIndex(b => b.Device == device && b.Offset == offset);
+            return _slots[key].FindIndex(b => b.Device == device && b.Offset == offset
+                                           && b.Behavior == behavior);
         }
 
         /// <summary>
@@ -123,6 +137,15 @@ namespace KeyboardOG
         /// 某个按键上已经选中的偏移量 —— 换算成「选键控件用的」偏移量，用于给控件做高亮。
         /// 键盘修饰键下发的是 104~111，控件上要显示成 224~231。
         /// </summary>
+        /// <summary>
+        /// 给可视化选键控件用：返回该键上属于这个设备的全部映射（带 behavior），
+        /// 控件据此把按键画成 普通=淡蓝 / 粘滞=绿 / 连发=淡紫。
+        /// </summary>
+        public List<Binding> PickerBindingsOf(int key, MapDevice device)
+        {
+            return _slots[key].Where(b => b.Device == device).Select(b => b.Clone()).ToList();
+        }
+
         public List<byte> PickerOffsetsOf(int key, MapDevice device)
         {
             return _slots[key]

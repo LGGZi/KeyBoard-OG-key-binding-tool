@@ -95,6 +95,7 @@ namespace KeyboardOG
             BuildWriteButton();
 
             Controls.Add(_grp);
+            RelayoutForWidth();
             RefreshBatchColors();
         }
 
@@ -422,6 +423,9 @@ namespace KeyboardOG
             };
 
             _grp.Controls.Add(_btnWrite);
+
+            //窗口加宽后：连发批量区跟着变宽，写入按钮贴到最右边，右侧不留大片空白
+            SizeChanged += (s, e) => RelayoutForWidth();
         }
 
         // ------------------------------------------------------------
@@ -618,6 +622,58 @@ namespace KeyboardOG
             }
 
             UpdatePendingTint();
+        }
+
+        /// <summary>
+        /// 把磁轴参数区按“四块”横向排开（跟着窗口宽度走）：
+        ///   ① 校准（固定宽 296） ② 写入范围（按键按钮） ③ 四个参数滑块 ④ 写入参数
+        /// 这样按键选择按钮不会盖到滑块上。
+        /// </summary>
+        private void RelayoutForWidth()
+        {
+            if (_btnWrite == null || _flpBatch == null) return;
+
+            const int pad = 10;          //左右留白
+            const int gap = 14;           //四块之间的间距
+            const int zone1W = 296;       //① 校准
+            const int zone3W = ParamCount * ColW;   //③ 参数滑块
+            const int zone4W = 102;       //④ 写入按钮
+
+            int zone2W = Width - pad * 2 - zone1W - zone3W - zone4W - gap * 3;
+            if (zone2W < 300) zone2W = 300;
+
+            int x1 = pad;
+            int x2 = x1 + zone1W + gap;
+            int x3 = x2 + zone2W + gap;
+            int x4 = x3 + zone3W + gap;
+
+            //① 校准：说明文字别超出自己的块
+            _lblCalibNote.Width = zone1W - 4;
+
+            //② 写入范围
+            _lblBatchTitle.Left = x2;
+            _flpBatch.Left = x2;
+            _flpBatch.Width = zone2W;
+            _btnBatchAll.Left = x2;
+            _btnSyncParams.Left = x2 + _btnBatchAll.Width + 8;
+
+            //③ 参数滑块（整列平移）
+            for (int i = 0; i < ParamCount; i++)
+            {
+                int x = x3 + i * ColW;
+                _lblParamName[i].Left = x;
+                _lblParamDevice[i].Left = x;
+                _bar[i].Left = x + (ColW - _bar[i].Width) / 2;
+                _num[i].Left = x + 4;
+            }
+
+            //④ 写入参数
+            _btnWrite.Left = x4;
+            if (_lblWriteNote != null && _lblWriteNote.Parent != null)
+            {
+                _lblWriteNote.Left = x4;
+                _lblWriteNote.Top = _btnWrite.Bottom + 4;
+            }
         }
     }
 }

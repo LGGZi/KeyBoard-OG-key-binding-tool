@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Drawing;
 
 namespace KeyboardOG
 {
@@ -69,6 +70,45 @@ namespace KeyboardOG
         Gamepad  = 2,   // CONTROLLER   -> report.xboxButtons
         Mouse    = 3,   // MOUSE        -> report.mouseButtons
         Consumer = 4,   // MULTIMEDIA   -> report.mediaButtons
+    }
+
+    /// <summary>
+    /// 映射行为 —— 存在 device 字节的**高 4 位**，低 4 位还是 MapDevice。
+    /// 老固件 / 老上位机的 device 只有 1~4，高 4 位自然是 0，所以天然兼容。
+    /// </summary>
+    public enum MapBehavior : byte
+    {
+        None   = 0,   // 普通映射
+        Sticky = 1,   // 粘滞键：按一次切换“是否保持输出”
+        Repeat = 2,   // 连发：按住时按固定间隔重复发送
+    }
+
+    /// <summary>behavior 和 device 拼在同一个字节里：高 4 位 behavior，低 4 位 device。</summary>
+    public static class BehaviorCodes
+    {
+        public const int  Shift = 4;
+        public const byte MaskDevice   = 0x0F;
+        public const byte MaskBehavior = 0xF0;
+
+        /// <summary>低 4 位的控制码（只在 behavior != None 时有意义）。</summary>
+        public const byte StickySwitch = 0x0E;   // 粘滞键：每按一次切换该键的保持状态
+        public const byte Toggle       = 0x0F;   // 功能总开关（粘滞 / 连发共用，靠高 4 位区分）
+
+        /// <summary>把 (behavior, device) 拼成下发用的 device 字节。</summary>
+        public static byte Compose(MapBehavior behavior, MapDevice device)
+        {
+            return (byte)(((byte)behavior << Shift) | ((byte)device & MaskDevice));
+        }
+
+        public static MapBehavior BehaviorOf(byte wireDevice)
+        {
+            return (MapBehavior)((wireDevice & MaskBehavior) >> Shift);
+        }
+
+        public static MapDevice DeviceOf(byte wireDevice)
+        {
+            return (MapDevice)(wireDevice & MaskDevice);
+        }
     }
 
     public enum MapOperation : byte
@@ -536,10 +576,14 @@ namespace KeyboardOG
         public static byte ParamKey(byte[] r) { return r[2]; }
         public static ushort ParamValue(byte[] r) { return (ushort)((r[3] << 8) | r[4]); }
 
-        /// <summary>把一条键值回传变成可以直接加进本地列表的 Binding。</summary>
+        /// <summary>
+        /// 把一条键值回传变成可以直接加进本地列表的 Binding。
+        /// device 字节高 4 位是 behavior，低 4 位才是真正的设备（老固件高 4 位恒为 0）。
+        /// </summary>
         public static Binding ToBinding(byte[] r)
         {
-            return new Binding((MapDevice)MapDeviceByte(r), MapOffset(r));
+            byte wire = MapDeviceByte(r);
+            return new Binding(BehaviorCodes.DeviceOf(wire), MapOffset(r), BehaviorCodes.BehaviorOf(wire));
         }
     }
 
@@ -725,6 +769,12 @@ namespace KeyboardOG
         public static string ShortText(Binding b)
         {
             if (b == null) return string.Empty;
+            if (IsControl(b))
+            {
+                return b.Behavior == MapBehavior.Repeat
+                    ? L.T("连发开关", "repeat sw")
+                    : L.T("粘滞开关", "sticky sw");
+            }
             string full = Describe(b.Device, b.Offset);
             string dev = DeviceName(b.Device);
             if (b.Device == MapDevice.Keyboard && full.StartsWith(dev + " ", StringComparison.Ordinal))
@@ -739,17 +789,61 @@ namespace KeyboardOG
         public static string CapText(Binding b)
         {
             if (b == null) return string.Empty;
+            if (IsControl(b))
+            {
+                return b.Behavior == MapBehavior.Repeat
+                    ? L.T("连发", "rep")
+                    : L.T("粘滞", "stk");
+            }
             byte picker = ToPickerOffset(b.Device, b.Offset);
             var hit = Options(b.Device).FirstOrDefault(o => o.Offset == picker);
             return hit != null ? hit.Name : Describe(b.Device, b.Offset);
         }
 
         /// <summary>描述一个映射，用于日志和列表显示。</summary>
+        /// <summary>是不是“功能控制”映射（粘滞/连发的开关），而不是真正要输出的键。</summary>
+        public static bool IsControl(Binding b)
+        {
+            if (b == null || b.Behavior == MapBehavior.None) return false;
+            byte device = (byte)b.Device;
+            return device == BehaviorCodes.StickySwitch || device == BehaviorCodes.Toggle;
+        }
+
         public static string Describe(Binding b)
         {
             if (b == null) return "(空)";
-            return string.Format("{0}  [device={1}, offset=0x{2:X2}]",
-                Describe(b.Device, b.Offset), (byte)b.Device, b.Offset);
+
+            //功能控制映射（0x0E / 0x0F）不是真实按键，单独给名字
+            if (IsControl(b))
+            {
+                byte device = (byte)b.Device;
+                if (b.Behavior == MapBehavior.Sticky)
+                {
+                    return device == BehaviorCodes.StickySwitch
+                        ? L.T("粘滞键 切换开关", "sticky switch")
+                        : L.T("粘滞键 功能开关", "sticky master switch");
+                }
+                return L.T("连发 功能开关", "repeat master switch");
+            }
+
+            string name = Describe(b.Device, b.Offset);
+            if (b.Behavior == MapBehavior.Sticky) name = L.F("[粘] {0}", "[Sticky] {0}", name);
+            else if (b.Behavior == MapBehavior.Repeat) name = L.F("[连] {0}", "[Repeat] {0}", name);
+            return string.Format("{0}  [device=0x{1:X2}, offset=0x{2:X2}]", name, b.WireDevice, b.Offset);
+        }
+
+        /// <summary>
+        /// 功能映射在界面上的颜色（普通映射返回 null = 用默认前景色）：
+        /// 粘滞键 = 绿，连发 = 红。
+        /// </summary>
+        public static Color BehaviorColor(MapBehavior behavior)
+        {
+            switch (behavior)
+            {
+                case MapBehavior.Sticky: return Color.FromArgb(0, 140, 70);    //绿
+                case MapBehavior.Repeat: return Color.FromArgb(115, 70, 170);  //淡紫
+                default: return Color.FromArgb(35, 95, 165);                   //普通：淡蓝
+            }
         }
 
         // ---------------- 参数 ----------------
@@ -782,17 +876,29 @@ namespace KeyboardOG
         public MapDevice Device;
         public byte Offset;
 
+        /// <summary>普通映射 = None；粘滞键 / 连发见 <see cref="MapBehavior"/>。</summary>
+        public MapBehavior Behavior;
+
         public Binding() { }
 
         public Binding(MapDevice device, byte offset)
+            : this(device, offset, MapBehavior.None)
+        {
+        }
+
+        public Binding(MapDevice device, byte offset, MapBehavior behavior)
         {
             Device = device;
             Offset = offset;
+            Behavior = behavior;
         }
+
+        /// <summary>真正下发给固件的 device 字节：高 4 位 behavior，低 4 位 device。</summary>
+        public byte WireDevice { get { return BehaviorCodes.Compose(Behavior, Device); } }
 
         public string Text { get { return BindingCatalog.Describe(this); } }
 
-        public Binding Clone() { return new Binding(Device, Offset); }
+        public Binding Clone() { return new Binding(Device, Offset, Behavior); }
 
         public override string ToString() { return Text; }
     }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -27,7 +27,7 @@ namespace KeyboardOG
         }
 
         private readonly List<Pad> _pads = new List<Pad>();
-        private readonly HashSet<byte> _selected = new HashSet<byte>();
+        private readonly Dictionary<byte, MapBehavior> _selected = new Dictionary<byte, MapBehavior>();
         private byte? _hover;
         private bool _selectionMode = true;
 
@@ -50,12 +50,26 @@ namespace KeyboardOG
             set { _selectionMode = value; Invalidate(); }
         }
 
-        public void SetSelection(IList<byte> offsets)
+        public void SetSelection(IList<Binding> bindings)
         {
             _selected.Clear();
-            if (offsets != null)
-                foreach (var o in offsets) _selected.Add(o);
+            if (bindings != null)
+            {
+                foreach (var b in bindings)
+                {
+                    byte off = BindingCatalog.ToPickerOffset(Device, b.Offset);
+                    MapBehavior old;
+                    if (!_selected.TryGetValue(off, out old) || old == MapBehavior.None)
+                        _selected[off] = b.Behavior;
+                }
+            }
             Invalidate();
+        }
+
+        private MapBehavior BehaviorOf(byte offset)
+        {
+            MapBehavior b;
+            return _selected.TryGetValue(offset, out b) ? b : MapBehavior.None;
         }
 
         private void BuildPads()
@@ -88,7 +102,7 @@ namespace KeyboardOG
             foreach (var pad in _pads)
             {
                 PickerDraw.Pad(g, pad.Rect, L.T(pad.Text), "bit" + pad.Offset,
-                               _selected.Contains(pad.Offset), true, _hover == pad.Offset, false);
+                               BehaviorOf(pad.Offset), true, _hover == pad.Offset, false);
             }
 
             PickerDraw.Note(g, L.T("多媒体映射：offset 0~5 按描述符顺序 → mediaButtons bit0~bit5"),

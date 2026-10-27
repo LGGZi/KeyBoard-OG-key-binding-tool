@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace KeyboardOG
 {
@@ -28,7 +28,7 @@ namespace KeyboardOG
     {
         private static bool Same(Binding a, Binding b)
         {
-            return a.Device == b.Device && a.Offset == b.Offset;
+            return a.Device == b.Device && a.Offset == b.Offset && a.Behavior == b.Behavior;
         }
 
         private static string Describe(Binding b)
@@ -42,7 +42,7 @@ namespace KeyboardOG
             {
                 Operation = op,
                 Key = (byte)key,
-                Device = b == null ? (byte)0 : (byte)b.Device,
+                Device = b == null ? (byte)0 : b.WireDevice,
                 Offset = b == null ? (byte)0 : b.Offset,
                 Index = index,
                 Detail = detail,
