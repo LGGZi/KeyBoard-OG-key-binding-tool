@@ -133,7 +133,7 @@ namespace KeyboardOG
         {
             Rectangle rect;
             if (!_hitAreas.TryGetValue(offset, out rect)) return;
-            PickerDraw.Pad(g, rect, text, sub, BehaviorOf(offset), true, _hover == offset, false);
+            PickerDraw.Pad(g, rect, text, sub, _selected.ContainsKey(offset), BehaviorOf(offset), true, _hover == offset, false);
         }
 
         protected override void OnMouseMove(MouseEventArgs e)

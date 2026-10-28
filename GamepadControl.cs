@@ -129,8 +129,9 @@ namespace KeyboardOG
             {
                 bool selectable = pad.Enabled;
                 string sub = selectable ? "bit" + pad.Offset : null;
-                MapBehavior behavior = selectable ? BehaviorOf(pad.Offset) : MapBehavior.None;
-                PickerDraw.Pad(g, pad.Rect, L.T(pad.Text), sub, behavior, selectable,
+                bool selected = selectable && _selected.ContainsKey(pad.Offset);
+                MapBehavior behavior = selected ? BehaviorOf(pad.Offset) : MapBehavior.None;
+                PickerDraw.Pad(g, pad.Rect, L.T(pad.Text), sub, selected, behavior, selectable,
                                selectable && _hover == pad.Offset, pad.Circle);
             }
 

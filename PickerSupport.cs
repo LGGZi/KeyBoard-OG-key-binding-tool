@@ -167,7 +167,7 @@ namespace KeyboardOG
         /// 之前主标题的矩形占满整个高度、副标题又画在底部，两者必然叠字 —— 这次修掉。
         /// </summary>
         public static void Pad(Graphics g, Rectangle rect, string text, string sub,
-                               MapBehavior behavior, bool enabled, bool hover, bool circle)
+                               bool selected, MapBehavior behavior, bool enabled, bool hover, bool circle)
         {
             Color fill, edge, fore;
             if (!enabled)
@@ -176,8 +176,9 @@ namespace KeyboardOG
                 edge = Color.FromArgb(205, 205, 205);
                 fore = PickerPalette.DisabledText;
             }
-            else if (behavior != MapBehavior.None)
+            else if (selected)
             {
+                //普通映射 behavior = None，也要画成淡蓝，不能只看 behavior
                 fill = PickerPalette.FillFor(behavior);
                 edge = PickerPalette.EdgeFor(behavior);
                 fore = PickerPalette.TextFor(behavior);
@@ -200,7 +201,7 @@ namespace KeyboardOG
                 ? EllipsePath(rect)
                 : RoundedRect(rect, Math.Min(10, Math.Min(rect.Width, rect.Height) / 3)))
             using (var brush = new SolidBrush(fill))
-            using (var pen = new Pen(edge, behavior != MapBehavior.None ? 2f : 1f))
+            using (var pen = new Pen(edge, selected ? 2f : 1f))
             {
                 g.FillPath(brush, path);
                 g.DrawPath(pen, path);

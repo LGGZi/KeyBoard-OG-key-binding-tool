@@ -102,7 +102,8 @@ namespace KeyboardOG
             foreach (var pad in _pads)
             {
                 PickerDraw.Pad(g, pad.Rect, L.T(pad.Text), "bit" + pad.Offset,
-                               BehaviorOf(pad.Offset), true, _hover == pad.Offset, false);
+                               _selected.ContainsKey(pad.Offset), BehaviorOf(pad.Offset),
+                               true, _hover == pad.Offset, false);
             }
 
             PickerDraw.Note(g, L.T("多媒体映射：offset 0~5 按描述符顺序 → mediaButtons bit0~bit5"),
