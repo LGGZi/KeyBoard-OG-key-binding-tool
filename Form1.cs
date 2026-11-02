@@ -35,7 +35,6 @@ namespace KeyboardOG
         // ---- 按键行为（粘滞键 / 连发）----
         private GroupBox _grpBehavior;
         private ComboBox _cboBehavior;
-        private CheckBox _chkBehaviorKeep;
         private Button _btnStickyToggle;
         private Button _btnRepeatToggle;
         private Label _lblBehaviorHint;
@@ -43,11 +42,19 @@ namespace KeyboardOG
         private Label _lblRepeatParams;
         private NumericUpDown _numRapidInterval;
         private NumericUpDown _numRapidPulse;
+        private NumericUpDown _numRapidVariation;
         private Button _btnWriteRapid;
         private Button _btnSaveRapid;
         private Label _lblRapidInterval;
         private Label _lblRapidPulse;
+        private Label _lblRapidVariation;
+        private Button _btnRepeatInc;
+        private Button _btnRepeatDec;
         private bool _rapidSupported;                 //固件 1.11+ 才有连发参数
+        private bool _rapidStepSupported;             //固件 1.12+ 才有间隔增减映射（0x2E/0x2D）
+        private bool _stickyRapidSupported;           //固件 1.12+ 才有粘滞+连发组合（nibble 3）
+        private CheckBox _chkStickyRapid;             //粘滞键模式下的“连发”复选框
+        private ToolTip _uiTips;                      //右栏窄，按钮含义用悬停提示
         private readonly RapidParams _rapidParams = new RapidParams();
         private MapBehavior _behaviorForNextPick = MapBehavior.None;
         private bool _behaviorSupported = false;
@@ -1266,6 +1273,8 @@ namespace KeyboardOG
             //按键行为（粘滞键 / 连发）需要固件 1.10 起；老固件照常能用普通映射
             _behaviorSupported = FeatureGate.SupportsBehavior(fw);
             _rapidSupported = FeatureGate.SupportsRapidParams(fw);
+            _rapidStepSupported = FeatureGate.SupportsRapidStep(fw);
+            _stickyRapidSupported = FeatureGate.SupportsStickyRapid(fw);
             UpdateBehaviorUi();
             UpdateBehaviorVisibility();   //连发参数那几项要不要能点，取决于固件版本
 
@@ -1598,11 +1607,11 @@ namespace KeyboardOG
                         _rapidParams.Pulse = parsed.Pulse;
                         _rapidParams.Variation = parsed.Variation;
                         ApplyRapidParamsToUi();
-                        SetRapidInputsVisible(_cboBehavior.SelectedIndex == 1);
+                        SetRapidInputsVisible(IsRepeatMode);
 
                         _log.Add(LogKind.Info, L.T("连发参数", "repeat params"),
-                            L.F("连发：开关 {0} / 间隔 {1}ms / 脉宽 {2}ms / 预留 {3}",
-                                "repeat: toggle {0}, interval {1}ms, pulse {2}ms, reserved {3}",
+                            L.F("连发：开关 {0} / 间隔 {1}ms / 脉宽 {2}ms / 步长 {3}ms",
+                                "repeat: toggle {0}, interval {1}ms, pulse {2}ms, step {3}ms",
                                 parsed.Toggle ? 1 : 0, parsed.Interval, parsed.Pulse, parsed.Variation),
                             null, LogState.Done);
                     }
@@ -2349,8 +2358,9 @@ namespace KeyboardOG
         //  按键行为（粘滞键 / 连发）
         // ============================================================
         /// <summary>
-        /// 在选键页签右边加一栏「按键行为」：下拉 + 常驻勾选框 + 两个功能开关按钮。
-        /// 默认不勾选 —— 不勾时点选键控件创建的就是普通映射。
+        /// 在选键页签右边加一栏「按键行为」：下拉（普通键 / 粘滞键 / 连发）+ 该类行为自己的映射按钮。
+        /// 下拉框直接决定"接下来点选的按键是什么行为"（原来用勾选框，现在由下拉框取代）：
+        /// 选普通键 = 点选创建普通映射。
         /// </summary>
         private void InitBehaviorUi()
         {
@@ -2372,16 +2382,11 @@ namespace KeyboardOG
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Dock = DockStyle.None,
             };
+            //0 = 普通键 / 1 = 粘滞键 / 2 = 连发（顺序固定，代码里按下标判断）
+            _cboBehavior.Items.Add(L.T("普通键", "Normal key"));
             _cboBehavior.Items.Add(L.T("粘滞键", "Sticky key"));
             _cboBehavior.Items.Add(L.T("连发", "Auto repeat"));
             _cboBehavior.SelectedIndex = 0;
-
-            _chkBehaviorKeep = new CheckBox
-            {
-                Text = L.T("将接下来选中的按键设置为…", "Apply to the next picked keys"),
-                Dock = DockStyle.None,
-                Checked = false,
-            };
 
             _btnStickyToggle = new Button
             {
@@ -2400,6 +2405,15 @@ namespace KeyboardOG
                 FlatStyle = FlatStyle.Flat,
                 BackColor = PickerPalette.RepeatFill,
                 ForeColor = PickerPalette.RepeatText,
+            };
+
+            //粘滞键模式下的额外选项：勾上后新映射用 STICKY_RAPID_TAB（上锁后一直连发）
+            _chkStickyRapid = new CheckBox
+            {
+                Text = L.T("连发", "Repeat"),
+                Dock = DockStyle.None,
+                Checked = false,
+                ForeColor = PickerPalette.StickyRapidText,
             };
 
             _lblRepeatParams = new Label
@@ -2429,6 +2443,38 @@ namespace KeyboardOG
                 Value = 15,
                 TextAlign = HorizontalAlignment.Center,
             };
+
+            //步长（variation）：键盘上"间隔增加/减少"映射每按一次改多少毫秒
+            _lblRapidVariation = new Label { Text = L.T("步长", "Step"), Dock = DockStyle.None, TextAlign = ContentAlignment.MiddleLeft };
+            _numRapidVariation = new NumericUpDown
+            {
+                Dock = DockStyle.None,
+                Minimum = RapidParams.VariationMin,
+                Maximum = RapidParams.VariationMax,
+                Increment = 1,
+                Value = 10,
+                TextAlign = HorizontalAlignment.Center,
+            };
+
+            //两个映射按钮：把 0x2E / 0x2D 加到当前按键（和 0x1F / 0x2F 开关按钮同一套逻辑）
+            _btnRepeatInc = new Button
+            {
+                Text = L.T("间隔增加", "Interval +"),
+                Dock = DockStyle.None,
+                Height = 28,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = PickerPalette.RepeatFill,
+                ForeColor = PickerPalette.RepeatText,
+            };
+            _btnRepeatDec = new Button
+            {
+                Text = L.T("间隔减少", "Interval -"),
+                Dock = DockStyle.None,
+                Height = 28,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = PickerPalette.RepeatFill,
+                ForeColor = PickerPalette.RepeatText,
+            };
             _btnWriteRapid = new Button
             {
                 Text = L.T("写入参数（即时生效）", "Write (apply now)"),
@@ -2453,14 +2499,18 @@ namespace KeyboardOG
             };
 
             _behaviorBody.Controls.Add(_cboBehavior);
-            _behaviorBody.Controls.Add(_chkBehaviorKeep);
             _behaviorBody.Controls.Add(_btnStickyToggle);
             _behaviorBody.Controls.Add(_btnRepeatToggle);
             _behaviorBody.Controls.Add(_lblRepeatParams);
             _behaviorBody.Controls.Add(_lblRapidInterval);
             _behaviorBody.Controls.Add(_lblRapidPulse);
+            _behaviorBody.Controls.Add(_lblRapidVariation);
             _behaviorBody.Controls.Add(_numRapidInterval);
             _behaviorBody.Controls.Add(_numRapidPulse);
+            _behaviorBody.Controls.Add(_numRapidVariation);
+            _behaviorBody.Controls.Add(_btnRepeatInc);
+            _behaviorBody.Controls.Add(_btnRepeatDec);
+            _behaviorBody.Controls.Add(_chkStickyRapid);
             _behaviorBody.Controls.Add(_btnWriteRapid);
             _behaviorBody.Controls.Add(_btnSaveRapid);
             _behaviorBody.Controls.Add(_lblBehaviorHint);
@@ -2476,9 +2526,15 @@ namespace KeyboardOG
             panelPickerHost.Controls.SetChildIndex(lblPickerHint, 2);
 
             _cboBehavior.SelectedIndexChanged += (s, e) => UpdateBehaviorPick();
-            _chkBehaviorKeep.CheckedChanged += (s, e) => UpdateBehaviorPick();
-            _btnStickyToggle.Click += (s, e) => ToggleControlMapping(MapBehavior.Sticky);
-            _btnRepeatToggle.Click += (s, e) => ToggleControlMapping(MapBehavior.Repeat);
+            //四个映射按钮统一手势，和选键控件里的映射手势完全一致：
+            //  左键 = 替换列表里选中的那条（没选中 = 追加）
+            //  右键 / Shift+左键 = 追加到末尾
+            //  点的是当前键上已经有的那条 = 删除它
+            WireControlButton(_btnStickyToggle, MapBehavior.Sticky, BehaviorCodes.Toggle);
+            WireControlButton(_btnRepeatToggle, MapBehavior.Repeat, BehaviorCodes.Toggle);
+            WireControlButton(_btnRepeatInc,    MapBehavior.Repeat, BehaviorCodes.RapidInc);
+            WireControlButton(_btnRepeatDec,    MapBehavior.Repeat, BehaviorCodes.RapidDec);
+            _chkStickyRapid.CheckedChanged += (s, e) => UpdateBehaviorPick();
             _behaviorBody.Resize += (s, e) => LayoutBehaviorContent();
 
             RetextBehaviorUi();
@@ -2495,19 +2551,38 @@ namespace KeyboardOG
             int idx = _cboBehavior.SelectedIndex < 0 ? 0 : _cboBehavior.SelectedIndex;
             _cboBehavior.BeginUpdate();
             _cboBehavior.Items.Clear();
+            _cboBehavior.Items.Add(L.T("普通键", "Normal key"));
             _cboBehavior.Items.Add(L.T("粘滞键", "Sticky key"));
             _cboBehavior.Items.Add(L.T("连发", "Auto repeat"));
             _cboBehavior.SelectedIndex = idx;
             _cboBehavior.EndUpdate();
 
-            _chkBehaviorKeep.Text = L.T("将接下来选中的按键设置为…", "Apply to the next picked keys");
             _btnStickyToggle.Text = L.T("粘滞键开关", "Sticky switch");
             _btnRepeatToggle.Text = L.T("连发开关", "Repeat switch");
-            _lblRepeatParams.Text = L.T("连发参数（固件 1.11+）", "Repeat parameters (firmware 1.11+)");
+            _chkStickyRapid.Text = L.T("连发", "Repeat");
+            _lblRepeatParams.Text = L.T("连发参数（固件 1.11+）", "Repeat params (fw 1.11+)");
             _lblRapidInterval.Text = L.T("间隔", "Interval");
             _lblRapidPulse.Text = L.T("脉宽", "Pulse");
+            _lblRapidVariation.Text = L.T("步长", "Step");
+            _btnRepeatInc.Text = L.T("间隔增加", "Interval +");
+            _btnRepeatDec.Text = L.T("间隔减少", "Interval -");
             _btnWriteRapid.Text = L.T("写入参数（即时生效）", "Write (apply now)");
             _btnSaveRapid.Text = L.T("保存到键盘", "Save to keyboard");
+
+            //右栏很窄，提示文字放不下，按钮含义挂到鼠标悬停上
+            if (_uiTips == null) _uiTips = new ToolTip();
+            _uiTips.SetToolTip(_numRapidVariation, L.T("按一次「间隔增加 / 减少」改动的毫秒数",
+                                                       "Milliseconds changed per interval +/- press"));
+            _uiTips.SetToolTip(_btnStickyToggle, L.T("粘滞键功能总开关（0x1F）\r\n左键 = 替换选中的映射，右键 = 追加",
+                                                     "Sticky master switch (0x1F)\r\nleft = replace the selected mapping, right = append"));
+            _uiTips.SetToolTip(_btnRepeatToggle, L.T("连发功能总开关（0x2F）\r\n左键 = 替换选中的映射，右键 = 追加",
+                                                     "Repeat master switch (0x2F)\r\nleft = replace the selected mapping, right = append"));
+            _uiTips.SetToolTip(_btnRepeatInc, L.T("连发间隔增加（0x2E）\r\n左键 = 替换选中的映射，右键 = 追加",
+                                                  "Repeat interval + (0x2E)\r\nleft = replace the selected mapping, right = append"));
+            _uiTips.SetToolTip(_btnRepeatDec, L.T("连发间隔减少（0x2D）\r\n左键 = 替换选中的映射，右键 = 追加",
+                                                  "Repeat interval - (0x2D)\r\nleft = replace the selected mapping, right = append"));
+            _uiTips.SetToolTip(_chkStickyRapid, L.T("勾上后，新点选的键变成「粘滞 + 连发」映射（0x3x）：\r\n上锁后按连发间隔一直重复；仍会自动注入 0x1E 切换开关",
+                                                     "When checked, newly picked keys become sticky+repeat mappings (0x3x):\r\nonce latched they keep repeating; the 0x1E switch is still injected"));
             UpdateBehaviorUi();
         }
 
@@ -2515,11 +2590,17 @@ namespace KeyboardOG
         private void SetRapidInputsVisible(bool on)
         {
             bool enable = on && _rapidSupported && _transport.IsConnected;
+            //步长本身是 1.11 的参数；两个"间隔增减"映射按钮要 1.12+ 的固件才真的有用
+            bool stepEnable = enable && _rapidStepSupported;
 
             if (_lblRapidInterval != null) _lblRapidInterval.Visible = on;
             if (_lblRapidPulse != null) _lblRapidPulse.Visible = on;
+            if (_lblRapidVariation != null) _lblRapidVariation.Visible = on;
             if (_numRapidInterval != null) { _numRapidInterval.Visible = on; _numRapidInterval.Enabled = enable; }
             if (_numRapidPulse != null) { _numRapidPulse.Visible = on; _numRapidPulse.Enabled = enable; }
+            if (_numRapidVariation != null) { _numRapidVariation.Visible = on; _numRapidVariation.Enabled = enable; }
+            if (_btnRepeatInc != null) { _btnRepeatInc.Visible = on; _btnRepeatInc.Enabled = stepEnable; }
+            if (_btnRepeatDec != null) { _btnRepeatDec.Visible = on; _btnRepeatDec.Enabled = stepEnable; }
             if (_btnWriteRapid != null) { _btnWriteRapid.Visible = on; _btnWriteRapid.Enabled = enable; }
             if (_btnSaveRapid != null) { _btnSaveRapid.Visible = on; _btnSaveRapid.Enabled = enable; }
         }
@@ -2530,8 +2611,10 @@ namespace KeyboardOG
 
             int interval = Math.Max(RapidParams.IntervalMin, Math.Min(RapidParams.IntervalMax, _rapidParams.Interval));
             int pulse = Math.Max(RapidParams.PulseMin, Math.Min(RapidParams.PulseMax, _rapidParams.Pulse));
+            int variation = Math.Max(RapidParams.VariationMin, Math.Min(RapidParams.VariationMax, _rapidParams.Variation));
             _numRapidInterval.Value = interval;
             _numRapidPulse.Value = pulse;
+            _numRapidVariation.Value = variation;
         }
 
         /// <summary>把界面上的连发参数写进键盘；save = true 时再发一条保存指令（写 EEPROM）。</summary>
@@ -2546,11 +2629,12 @@ namespace KeyboardOG
 
             _rapidParams.Interval = (int)_numRapidInterval.Value;
             _rapidParams.Pulse = (int)_numRapidPulse.Value;
+            _rapidParams.Variation = (int)_numRapidVariation.Value;
 
             var set = CommandRequest.Of("SET/RAPID",
-                L.F("连发参数：间隔 {0}ms / 脉宽 {1}ms（开关由键盘映射控制）",
-                    "repeat: interval {0}ms, pulse {1}ms (toggle is keyboard-only)",
-                    _rapidParams.Interval, _rapidParams.Pulse),
+                L.F("连发参数：间隔 {0}ms / 脉宽 {1}ms / 步长 {2}ms（开关由键盘映射控制）",
+                    "repeat: interval {0}ms, pulse {1}ms, step {2}ms (toggle is keyboard-only)",
+                    _rapidParams.Interval, _rapidParams.Pulse, _rapidParams.Variation),
                 CommandBuilder.SetRapid(_rapidParams.Pulse, _rapidParams.Interval, _rapidParams.Variation), 0);
 
             if (!await SendCommandAsync(set)) return;
@@ -2566,8 +2650,12 @@ namespace KeyboardOG
             SetStatus(save
                 ? L.T("连发参数已写入并保存到键盘。", "Repeat parameters written and saved.")
                 : L.T("连发参数已写入（重新插拔前不会保留）。", "Repeat parameters applied (not saved)."));
-            SetRapidInputsVisible(_cboBehavior.SelectedIndex == 1);
+            SetRapidInputsVisible(IsRepeatMode);
         }
+
+        /// <summary>下拉框三项（顺序固定）：0 普通键 / 1 粘滞键 / 2 连发。</summary>
+        private bool IsStickyMode { get { return _cboBehavior != null && _cboBehavior.SelectedIndex == 1; } }
+        private bool IsRepeatMode { get { return _cboBehavior != null && _cboBehavior.SelectedIndex == 2; } }
 
         /// <summary>右栏内容按当前选择重排：只有选中项自己的控件可见。</summary>
         private void LayoutBehaviorContent()
@@ -2578,26 +2666,32 @@ namespace KeyboardOG
             if (w < 120) w = 120;
             int y = 4;
 
-            _cboBehavior.SetBounds(4, y, w, 24); y += 28;
-            _chkBehaviorKeep.SetBounds(4, y, w, 42); y += 46;
+            _cboBehavior.SetBounds(4, y, w, 24); y += 30;
 
-            bool repeat = (_cboBehavior.SelectedIndex == 1);
-            if (repeat)
+            if (IsRepeatMode)
             {
-                _btnRepeatToggle.SetBounds(4, y, w, 30); y += 34;
-                _lblRepeatParams.SetBounds(4, y, w, 18); y += 20;
+                //三个映射按钮排在一起：它们都是"往当前键加一条映射"，和下面的参数不是一类
+                _btnRepeatToggle.SetBounds(4, y, w, 30); y += 33;
+                int half = (w - 6) / 2;
+                _btnRepeatInc.SetBounds(4, y, half, 28);
+                _btnRepeatDec.SetBounds(4 + half + 6, y, half, 28); y += 32;
+
+                _lblRepeatParams.SetBounds(4, y, w, 18); y += 19;
 
                 _lblRapidInterval.SetBounds(4, y, 52, 23);
-                _numRapidInterval.SetBounds(58, y, w - 58, 23); y += 27;
+                _numRapidInterval.SetBounds(58, y, w - 58, 23); y += 26;
                 _lblRapidPulse.SetBounds(4, y, 52, 23);
-                _numRapidPulse.SetBounds(58, y, w - 58, 23); y += 29;
+                _numRapidPulse.SetBounds(58, y, w - 58, 23); y += 26;
+                _lblRapidVariation.SetBounds(4, y, 52, 23);
+                _numRapidVariation.SetBounds(58, y, w - 58, 23); y += 28;
 
-                _btnWriteRapid.SetBounds(4, y, w, 28); y += 32;
-                _btnSaveRapid.SetBounds(4, y, w, 28); y += 34;
+                _btnWriteRapid.SetBounds(4, y, w, 28); y += 31;
+                _btnSaveRapid.SetBounds(4, y, w, 28); y += 32;
             }
-            else
+            else if (IsStickyMode)
             {
                 _btnStickyToggle.SetBounds(4, y, w, 30); y += 34;
+                _chkStickyRapid.SetBounds(4, y, w, 22); y += 26;
             }
 
             int hintHeight = _behaviorBody.ClientSize.Height - y - 6;
@@ -2607,17 +2701,22 @@ namespace KeyboardOG
 
         /// <summary>
         /// 下拉选中哪一项，就只显示那一项自己的控件：
+        ///   普通键 → 只有提示（选择手势说明）
         ///   粘滞键 → 粘滞键开关
-        ///   连发   → 连发开关 + 连发参数（占位）
+        ///   连发   → 连发开关 + 间隔增加 / 减少 + 连发参数
         /// </summary>
         private void UpdateBehaviorVisibility()
         {
             if (_btnStickyToggle == null || _btnRepeatToggle == null) return;
 
-            bool repeat = (_cboBehavior.SelectedIndex == 1);
+            bool repeat = IsRepeatMode;
+            bool sticky = IsStickyMode;
 
-            _btnStickyToggle.Visible = !repeat;
+            _btnStickyToggle.Visible = sticky;
             _btnRepeatToggle.Visible = repeat;
+            if (_btnRepeatInc != null) _btnRepeatInc.Visible = repeat;
+            if (_btnRepeatDec != null) _btnRepeatDec.Visible = repeat;
+            if (_chkStickyRapid != null) _chkStickyRapid.Visible = sticky;
 
             if (_lblRepeatParams != null) _lblRepeatParams.Visible = repeat;
             SetRapidInputsVisible(repeat);
@@ -2625,15 +2724,28 @@ namespace KeyboardOG
             LayoutBehaviorContent();
         }
 
-        /// <summary>勾选框 + 下拉 = “接下来点选的按键用什么行为”。常驻，直到手动取消勾选。</summary>
+        /// <summary>
+        /// 下拉框决定“接下来点选的按键用什么行为”（勾选框已取消，由下拉框取代）。
+        /// 粘滞键模式下再叠加“连发”复选框：勾上就是 粘滞+连发（STICKY_RAPID_TAB）。
+        /// </summary>
         private void UpdateBehaviorPick()
         {
-            if (_chkBehaviorKeep == null) return;
+            if (_cboBehavior == null) return;
 
-            _behaviorForNextPick =
-                (_chkBehaviorKeep.Checked && _cboBehavior.SelectedIndex >= 0)
-                    ? (_cboBehavior.SelectedIndex == 1 ? MapBehavior.Repeat : MapBehavior.Sticky)
-                    : MapBehavior.None;
+            switch (_cboBehavior.SelectedIndex)
+            {
+                case 2:
+                    _behaviorForNextPick = MapBehavior.Repeat;
+                    break;
+                case 1:
+                    _behaviorForNextPick = (_chkStickyRapid != null && _chkStickyRapid.Checked && _stickyRapidSupported)
+                        ? MapBehavior.StickyRapid
+                        : MapBehavior.Sticky;
+                    break;
+                default:
+                    _behaviorForNextPick = MapBehavior.None;
+                    break;
+            }
 
             UpdateBehaviorVisibility();
             UpdateBehaviorUi();
@@ -2646,10 +2758,25 @@ namespace KeyboardOG
 
             bool supported = _behaviorSupported;
             _grpBehavior.Enabled = true;      //面板本身保持可打开，便于看到“固件版本过低”的提示
+
+            //固件不支持行为功能时退回“普通键”并锁住下拉框：
+            //否则会出现“下拉显示连发、点选却按普通映射创建”的错觉
+            if (!supported && _cboBehavior.SelectedIndex != 0)
+            {
+                _cboBehavior.SelectedIndex = 0;   //会再回调 UpdateBehaviorPick
+                return;
+            }
+
             _cboBehavior.Enabled = supported;
-            _chkBehaviorKeep.Enabled = supported;
             _btnStickyToggle.Enabled = supported;
             _btnRepeatToggle.Enabled = supported;
+
+            //粘滞+连发要固件 1.12+：不支持时直接取消勾选，免得点了没反应还以为生效了
+            if (_chkStickyRapid != null)
+            {
+                if (!_stickyRapidSupported && _chkStickyRapid.Checked) _chkStickyRapid.Checked = false;
+                _chkStickyRapid.Enabled = supported && _stickyRapidSupported && _transport.IsConnected;
+            }
 
             if (_lblBehaviorHint == null) return;
 
@@ -2661,33 +2788,71 @@ namespace KeyboardOG
             }
             else if (!supported)
             {
-                lines.Add(L.T("需要固件 1.10 或更新，当前固件不支持按键行为。",
-                              "Requires firmware 1.10 or newer."));
+                lines.Add(L.T("需要固件 1.10 或更新，当前固件不支持粘滞键 / 连发。",
+                              "Requires firmware 1.10 or newer for sticky keys / auto repeat."));
+            }
+            else if (IsRepeatMode)
+            {
+                lines.Add(L.T("开关加 0x2F，间隔 ± 加 0x2E / 0x2D。",
+                              "Switch adds 0x2F; interval +/- add 0x2E / 0x2D."));
+                lines.Add(L.T("三个按钮：左键替换、右键追加。",
+                              "Three buttons: left replaces, right appends."));
+                if (_rapidSupported && !_rapidStepSupported)
+                {
+                    lines.Add(L.T("间隔增减映射需要固件 1.12 或更新。",
+                                  "Interval +/- mappings need firmware 1.12 or newer."));
+                }
+                lines.Add(L.T("连发开关只由键盘映射控制。",
+                              "The repeat toggle is keyboard-only."));
+            }
+            else if (IsStickyMode)
+            {
+                bool combo = _chkStickyRapid != null && _chkStickyRapid.Checked && _stickyRapidSupported;
+                lines.Add(combo
+                    ? L.T("勾选「连发」：新点选的键变成粘滞 + 连发（0x3x）",
+                          "Repeat checked: picks become sticky + repeat (0x3x)")
+                    : L.T("点选的键创建粘滞映射（自动占 2 个槽）",
+                          "Picked keys create sticky mappings (2 slots)"));
+                lines.Add(L.T("「粘滞键开关」加 0x1F，左键替换、右键追加",
+                              "Sticky switch adds 0x1F: left replaces, right appends"));
+                if (_stickyRapidSupported)
+                {
+                    lines.Add(L.T("粘滞+连发：上锁后按连发间隔一直重复",
+                                  "Sticky + repeat keeps firing while latched"));
+                }
+                else
+                {
+                    lines.Add(L.T("粘滞+连发需要固件 1.12 或更新",
+                                  "Sticky + repeat needs firmware 1.12 or newer"));
+                }
             }
             else
             {
-                lines.Add(L.T("勾选后，接下来点选的按键都按所选行为创建；取消勾选恢复普通映射。",
-                              "While checked, picked keys use the selected behaviour; uncheck for normal."));
-                lines.Add(L.T("粘滞键自动占用 2 个槽：切换开关 + 按键。",
-                              "Sticky keys take 2 slots: switch + key."));
-                lines.Add(L.T("开关按钮把 0x1F / 0x2F 映射加到当前按键，按一次切换功能开关。",
-                              "Switch buttons add the 0x1F / 0x2F mapping to the current key."));
-                lines.Add(L.T("连发开关只能由键盘映射切换，上位机不会改动它。",
-                              "The repeat toggle is keyboard-only; the host never changes it."));
+                //普通键模式下没有按钮，正好用提示说明选键手势
+                lines.Add(L.T("-- 手势：左键替换、右键追加",
+                              "-- Left replaces, right appends"));
+                lines.Add(L.T("左键点已有的映射 = 删除",
+                              "Left click an existing mapping = remove"));
+                lines.Add(L.T("右键 / Shift+左键 = 追加",
+                              "Right click / Shift+left = append"));
+                lines.Add(L.T("没选中条目时，左键也是追加",
+                              "With nothing selected, left click appends too"));
+                lines.Add(L.T("下拉框决定点选时创建哪种映射",
+                              "The dropdown decides what a pick creates"));
             }
             _lblBehaviorHint.Text = string.Join("\r\n", lines.ToArray());
         }
 
         /// <summary>
-        /// 粘滞键的切换开关映射由上位机维护：该键有粘滞键映射就保证第 1 槽有一条 0x0E，
-        /// 没有粘滞键映射就把它删掉。
+        /// 粘滞族的切换开关映射由上位机维护：该键有粘滞键 / 粘滞+连发映射就保证第 1 槽有一条 0x1E，
+        /// 一条都没有就把它删掉。
+        /// 固件侧这个开关必须存在：粘滞+连发的上锁状态（sk_trigger_state）就靠它切换。
         /// </summary>
         private void NormalizeStickyInjection(int key)
         {
             var list = _model[key];
-            bool hasPayload = list.Any(b => b.Behavior == MapBehavior.Sticky && !BindingCatalog.IsControl(b));
-            int idx = list.FindIndex(b => b.Behavior == MapBehavior.Sticky
-                                       && (byte)b.Device == BehaviorCodes.StickySwitch);
+            bool hasPayload = list.Any(BindingCatalog.IsStickyPayload);
+            int idx = list.FindIndex(b => BindingCatalog.IsStickySwitch(b));
 
             if (hasPayload && idx < 0)
             {
@@ -2699,48 +2864,102 @@ namespace KeyboardOG
             }
         }
 
-        /// <summary>把功能总开关（0x1F / 0x2F）映射加到当前按键；已经有就删掉。</summary>
-        private void ToggleControlMapping(MapBehavior behavior)
+        /// <summary>
+        /// 把一个"控制"映射按选键控件那套手势应用到当前按键：
+        ///   当前键已经有这条   → 删掉它（和"再点一次 = 取消"一致）
+        ///   左键 + 列表有选中项 → 替换那一条
+        ///   其它（右键 / Shift+左键 / 没选中）→ 追加到末尾
+        /// 控制码按 behavior 分区（0x0E 在粘滞是切换开关、在连发是间隔增加），所以两个参数都要传。
+        /// </summary>
+        private void PickControlMapping(MapBehavior behavior, byte controlCode, bool addOnly)
         {
             if (!_behaviorSupported) return;
 
-            var list = _model[_currentKey];
-            int idx = list.FindIndex(b => b.Behavior == behavior && (byte)b.Device == BehaviorCodes.Toggle);
-
-            if (idx >= 0)
+            //间隔增减是固件 1.12+ 才有的行为码，老固件上加了也不起作用，直接拦住
+            if (behavior == MapBehavior.Repeat && controlCode != BehaviorCodes.Toggle && !_rapidStepSupported)
             {
-                _model.RemoveAt(_currentKey, idx);
-                MarkDirty(_currentKey);
-                UpdateMappingView();
-                SetStatus(L.F("按键 #{0} 移除{1}开关映射",
-                              "Key #{0}: removed the {1} switch mapping",
-                              _currentKey, BehaviorName(behavior)));
+                SetStatus(L.T("间隔增加 / 减少映射需要固件 1.12 或更新。",
+                              "Interval +/- mappings require firmware 1.12 or newer."));
                 return;
             }
 
+            var binding = new Binding((MapDevice)controlCode, 0, behavior);
+            var list = _model[_currentKey];
+            int exist = list.FindIndex(b => b.Behavior == behavior && (byte)b.Device == controlCode);
+
+            // ---------- 点已有的 = 删掉 ----------
+            if (exist >= 0)
+            {
+                _model.RemoveAt(_currentKey, exist);
+                NormalizeStickyInjection(_currentKey);   //删掉的可能正好是粘滞键的载荷
+                MarkDirty(_currentKey);
+                UpdateMappingView();
+                SetStatus(L.F("按键 #{0} 移除映射：{1}（第 {2} 条）",
+                              "Key #{0}: removed mapping {1} (slot {2})",
+                              _currentKey, binding.Text, exist + 1));
+                return;
+            }
+
+            int sel = SelectedSlot();
+
+            // ---------- 左键 + 列表有选中项 = 替换那一条 ----------
+            if (!addOnly && sel >= 0)
+            {
+                _model.ReplaceAt(_currentKey, sel, binding);
+                NormalizeStickyInjection(_currentKey);
+                MarkDirty(_currentKey);
+                UpdateMappingView();          //选中的槽位会被保住
+                SetStatus(L.F("按键 #{0} 第 {1} 条替换为：{2}",
+                              "Key #{0}: slot {1} replaced with {2}",
+                              _currentKey, sel + 1, binding.Text));
+                return;
+            }
+
+            // ---------- 追加 ----------
             if (_model.IsFull(_currentKey))
             {
-                SetStatus(L.F("按键 #{0} 已经有 {1} 条映射，达到上限。",
-                              "Key #{0} already has {1} mappings.",
+                SetStatus(L.F("按键 #{0} 已经有 {1} 条映射，达到上限。请先删除一条。",
+                              "Key #{0} already has {1} mappings. Delete one first.",
                               _currentKey, DeviceLimits.MaxBindingsPerKey));
                 System.Media.SystemSounds.Beep.Play();
                 return;
             }
 
-            _model.Add(_currentKey, new Binding((MapDevice)BehaviorCodes.Toggle, 0, behavior));
+            if (!_model.Add(_currentKey, binding))
+            {
+                SetStatus(L.F("按键 #{0} 上已经有 {1} 了。",
+                              "Key #{0} already has {1}.",
+                              _currentKey, binding.Text));
+                return;
+            }
+
+            NormalizeStickyInjection(_currentKey);
             MarkDirty(_currentKey);
             UpdateMappingView();
-            SelectSlot(_model.Count(_currentKey) - 1);
-            SetStatus(L.F("按键 #{0} 加入{1}开关映射（按一次切换功能开关）",
-                          "Key #{0}: added the {1} switch mapping",
-                          _currentKey, BehaviorName(behavior)));
+            SelectSlot(_model.Count(_currentKey) - 1);   //选中刚加进来的那条
+            SetStatus(L.F("按键 #{0} 加入映射：{1}（左键=替换选中项，右键/Shift+左键=追加，点已有的=删除）",
+                          "Key #{0}: added mapping {1} (left=replace selected, right/shift+left=append, click existing=remove)",
+                          _currentKey, binding.Text));
         }
 
-        private static string BehaviorName(MapBehavior behavior)
+        /// <summary>给映射按钮接上"左键替换 / 右键追加"手势（和选键控件里的映射手势一致）。</summary>
+        private void WireControlButton(Button button, MapBehavior behavior, byte controlCode)
         {
-            return behavior == MapBehavior.Repeat
-                ? L.T("连发", "auto repeat")
-                : L.T("粘滞键", "sticky");
+            if (button == null) return;
+
+            //用 MouseDown 而不是 Click：右键不触发 Click，而且这里要分辨左右键
+            button.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Right)
+                {
+                    PickControlMapping(behavior, controlCode, true);
+                }
+                else if (e.Button == MouseButtons.Left)
+                {
+                    bool shift = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
+                    PickControlMapping(behavior, controlCode, shift);
+                }
+            };
         }
 
         /// <summary>

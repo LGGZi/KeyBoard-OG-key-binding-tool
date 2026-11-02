@@ -95,6 +95,10 @@ namespace KeyboardOG
         public static readonly Color RepeatFill   = Color.FromArgb(232, 219, 250);   //连发键：淡紫
         public static readonly Color RepeatEdge   = Color.FromArgb(120, 80, 175);
         public static readonly Color RepeatText   = Color.FromArgb(70, 40, 110);
+        //粘滞+连发：绿和紫的中间色（青绿），既不和粘滞撞色，也不像连发
+        public static readonly Color StickyRapidFill = Color.FromArgb(196, 235, 231);
+        public static readonly Color StickyRapidEdge = Color.FromArgb(36, 118, 120);
+        public static readonly Color StickyRapidText = Color.FromArgb(0, 100, 100);
         public static readonly Color Disabled     = Color.FromArgb(234, 234, 234);
         public static readonly Color DisabledText = Color.FromArgb(170, 170, 170);
         public static readonly Color Text         = Color.FromArgb(30, 30, 30);
@@ -109,6 +113,7 @@ namespace KeyboardOG
             {
                 case MapBehavior.Sticky: return StickyFill;
                 case MapBehavior.Repeat: return RepeatFill;
+                case MapBehavior.StickyRapid: return StickyRapidFill;
                 default: return Selected;
             }
         }
@@ -119,6 +124,7 @@ namespace KeyboardOG
             {
                 case MapBehavior.Sticky: return StickyEdge;
                 case MapBehavior.Repeat: return RepeatEdge;
+                case MapBehavior.StickyRapid: return StickyRapidEdge;
                 default: return SelectedEdge;
             }
         }
@@ -129,6 +135,7 @@ namespace KeyboardOG
             {
                 case MapBehavior.Sticky: return StickyText;
                 case MapBehavior.Repeat: return RepeatText;
+                case MapBehavior.StickyRapid: return StickyRapidText;
                 default: return Text;
             }
         }

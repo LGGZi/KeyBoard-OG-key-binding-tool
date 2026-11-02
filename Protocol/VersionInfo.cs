@@ -62,7 +62,7 @@ namespace KeyboardOG
     /// <summary>本上位机软件的版本号（和固件同一套格式，便于对照）。</summary>
     public static class AppVersion
     {
-        // 版本号只有一个来源：AssemblyInfo.cs 的 AssemblyVersion（1.10.0.0 -> 1.10）。
+        // 版本号只有一个来源：AssemblyInfo.cs 的 AssemblyVersion（1.11.0.0 -> 1.11）。
         // 这里不再手写常量，避免"程序里写着 1.02、文件属性是 1.07"这种不一致。
         public static readonly FirmwareVersion Current = FromAssembly();
 
@@ -112,6 +112,22 @@ namespace KeyboardOG
         {
             return firmware.CompareTo(MinForRapidParams) >= 0;
         }
+
+        /// <summary>连发的「间隔增加 / 减少」映射（0x2E / 0x2D）从固件 1.12 开始有。</summary>
+        public static readonly FirmwareVersion MinForRapidStep = FirmwareVersion.Of(1, 1, 2);
+
+        public static bool SupportsRapidStep(FirmwareVersion firmware)
+        {
+            return firmware.CompareTo(MinForRapidStep) >= 0;
+        }
+
+        /// <summary>粘滞 + 连发组合（behavior nibble = 3，STICKY_RAPID_TAB）从固件 1.12 开始有。</summary>
+        public static readonly FirmwareVersion MinForStickyRapid = FirmwareVersion.Of(1, 1, 2);
+
+        public static bool SupportsStickyRapid(FirmwareVersion firmware)
+        {
+            return firmware.CompareTo(MinForStickyRapid) >= 0;
+        }
     }
 
     public static class Compatibility
@@ -128,6 +144,14 @@ namespace KeyboardOG
         // 发新软件版本时往上加一行（越靠前越新）。
         private static readonly Entry[] Table =
         {
+            // 软件 1.11：支持固件 1.10 ~ 1.57（连发步长 variation；间隔增减映射 0x2E/0x2D 要固件 1.12+）
+            new Entry
+            {
+                Software    = FirmwareVersion.Of(1, 1, 1),
+                MinFirmware = FirmwareVersion.Of(1, 1, 0),
+                MaxFirmware = FirmwareVersion.Of(1, 5, 7),
+                Note        = "repeat step (variation) + interval up/down mappings (firmware 1.12+)",
+            },
             // 软件 1.10：支持固件 1.10 ~ 1.57（粘滞键 / 连发：behavior 高 4 位 + 连发参数区）
             // 1.10 以前没有 behavior，新软件直接按“固件版本过老”提示，不再兼容
             // 注：版本号和固件用同一套 2|3|3 编码，最后一段只有 3 位，写 1.0.8.0 会被截成 1.00

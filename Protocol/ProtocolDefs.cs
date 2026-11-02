@@ -41,7 +41,7 @@ namespace KeyboardOG
         SetLedAccent = 0x09,// 即时设置副色：[1..3]=RGB
         SaveLed   = 0x0A,   // 保存灯效参数：[1]=0x5A 确认
         SetLedFps = 0x0B,   // 设置灯效刷新率：[1]=fps（10~200）
-        SetRapid  = 0x0C,   // 设置连发参数：[1]=开关 [2]=脉宽 [3..4]=间隔 [5..6]=预留
+        SetRapid  = 0x0C,   // 设置连发参数：[1]=保留 [2]=脉宽 [3..4]=间隔 [5..6]=步长（variation）
         SaveRapid = 0x0D,   // 保存连发参数：[1]=0x6C 确认
     }
 
@@ -80,9 +80,10 @@ namespace KeyboardOG
     /// </summary>
     public enum MapBehavior : byte
     {
-        None   = 0,   // 普通映射
-        Sticky = 1,   // 粘滞键：按一次切换“是否保持输出”
-        Repeat = 2,   // 连发：按住时按固定间隔重复发送
+        None        = 0,   // 普通映射
+        Sticky      = 1,   // 粘滞键：按一次切换“是否保持输出”
+        Repeat      = 2,   // 连发：按住时按固定间隔重复发送
+        StickyRapid = 3,   // 粘滞 + 连发：上锁后按固定间隔一直重复（固件 1.12+）
     }
 
     /// <summary>behavior 和 device 拼在同一个字节里：高 4 位 behavior，低 4 位 device。</summary>
@@ -92,8 +93,15 @@ namespace KeyboardOG
         public const byte MaskDevice   = 0x0F;
         public const byte MaskBehavior = 0xF0;
 
-        /// <summary>低 4 位的控制码（只在 behavior != None 时有意义）。</summary>
+        /// <summary>
+        /// 低 4 位的控制码（只在 behavior != None 时有意义，**按 behavior 分区解读**）：
+        ///   粘滞键（behavior=1）：0x0E 切换开关 / 0x0F 功能总开关
+        ///   连发  （behavior=2）：0x0D 间隔减少 / 0x0E 间隔增加 / 0x0F 功能总开关
+        /// 0x0E 在两个区里含义不同，所以判断"这是控制码吗"必须连 behavior 一起看。
+        /// </summary>
         public const byte StickySwitch = 0x0E;   // 粘滞键：每按一次切换该键的保持状态
+        public const byte RapidInc     = 0x0E;   // 连发：按一次 interval += variation（固件 1.12+）
+        public const byte RapidDec     = 0x0D;   // 连发：按一次 interval -= variation（固件 1.12+）
         public const byte Toggle       = 0x0F;   // 功能总开关（粘滞 / 连发共用，靠高 4 位区分）
 
         /// <summary>把 (behavior, device) 拼成下发用的 device 字节。</summary>
@@ -338,6 +346,7 @@ namespace KeyboardOG
         /// <summary>
         /// 写入连发参数（即时生效，不写 EEPROM）。
         /// 开关（toggle）不在这里设置：固件只认键盘上的 0x2F 映射，上位机发了也不生效。
+        /// variation = 键盘上「间隔增加 / 减少」映射每按一次改多少毫秒。
         /// </summary>
         public static byte[] SetRapid(int pulse, int interval, int variation)
         {
@@ -810,9 +819,11 @@ namespace KeyboardOG
             if (b == null) return string.Empty;
             if (IsControl(b))
             {
-                return b.Behavior == MapBehavior.Repeat
-                    ? L.T("连发开关", "repeat sw")
-                    : L.T("粘滞开关", "sticky sw");
+                if (b.Behavior == MapBehavior.Sticky) return L.T("粘滞开关", "sticky sw");
+                byte device = (byte)b.Device;
+                if (device == BehaviorCodes.RapidInc) return L.T("间隔增加", "interval +");
+                if (device == BehaviorCodes.RapidDec) return L.T("间隔减少", "interval -");
+                return L.T("连发开关", "repeat sw");
             }
             string full = Describe(b.Device, b.Offset);
             string dev = DeviceName(b.Device);
@@ -830,9 +841,11 @@ namespace KeyboardOG
             if (b == null) return string.Empty;
             if (IsControl(b))
             {
-                return b.Behavior == MapBehavior.Repeat
-                    ? L.T("连发", "rep")
-                    : L.T("粘滞", "stk");
+                if (b.Behavior == MapBehavior.Sticky) return L.T("粘滞", "stk");
+                byte device = (byte)b.Device;
+                if (device == BehaviorCodes.RapidInc) return L.T("间+", "iv+");
+                if (device == BehaviorCodes.RapidDec) return L.T("间-", "iv-");
+                return L.T("连发", "rep");
             }
             byte picker = ToPickerOffset(b.Device, b.Offset);
             var hit = Options(b.Device).FirstOrDefault(o => o.Offset == picker);
@@ -848,19 +861,53 @@ namespace KeyboardOG
                 && (byte)b.Device == BehaviorCodes.StickySwitch;
         }
 
-        /// <summary>是不是“功能控制”映射（粘滞/连发的开关），而不是真正要输出的键。</summary>
+        /// <summary>
+        /// 是不是"粘滞族"的载荷（粘滞键 / 粘滞+连发）—— 这类映射要求该键有 0x1E 切换开关，
+        /// 上位机要自动注入。控制映射（0x1E/0x1F）不算载荷。
+        /// </summary>
+        public static bool IsStickyPayload(Binding b)
+        {
+            return b != null
+                && (b.Behavior == MapBehavior.Sticky || b.Behavior == MapBehavior.StickyRapid)
+                && !IsControl(b);
+        }
+
+        /// <summary>
+        /// 是不是"控制"映射（开关 / 间隔增减），而不是真正要输出的键。
+        /// 控制码按 behavior 分区，所以这里必须连 behavior 一起判断：
+        ///   粘滞 0x0E 是切换开关，但连发的 0x0E 是"间隔增加"。
+        /// </summary>
         public static bool IsControl(Binding b)
         {
-            if (b == null || b.Behavior == MapBehavior.None) return false;
+            if (b == null) return false;
             byte device = (byte)b.Device;
-            return device == BehaviorCodes.StickySwitch || device == BehaviorCodes.Toggle;
+            switch (b.Behavior)
+            {
+                case MapBehavior.Sticky:
+                    return device == BehaviorCodes.StickySwitch || device == BehaviorCodes.Toggle;
+
+                case MapBehavior.Repeat:
+                    return device == BehaviorCodes.RapidInc || device == BehaviorCodes.RapidDec
+                        || device == BehaviorCodes.Toggle;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>连发的间隔增减映射（0x2E / 0x2D，固件 1.12+）。</summary>
+        public static bool IsRapidStep(Binding b)
+        {
+            return b != null
+                && b.Behavior == MapBehavior.Repeat
+                && ((byte)b.Device == BehaviorCodes.RapidInc || (byte)b.Device == BehaviorCodes.RapidDec);
         }
 
         public static string Describe(Binding b)
         {
             if (b == null) return "(空)";
 
-            //功能控制映射（0x0E / 0x0F）不是真实按键，单独给名字
+            //功能控制映射（0x0D / 0x0E / 0x0F）不是真实按键，单独给名字
             if (IsControl(b))
             {
                 byte device = (byte)b.Device;
@@ -870,26 +917,30 @@ namespace KeyboardOG
                         ? L.T("粘滞键 切换开关", "sticky switch")
                         : L.T("粘滞键 功能开关", "sticky master switch");
                 }
+                if (device == BehaviorCodes.RapidInc) return L.T("连发 间隔增加", "repeat interval +");
+                if (device == BehaviorCodes.RapidDec) return L.T("连发 间隔减少", "repeat interval -");
                 return L.T("连发 功能开关", "repeat master switch");
             }
 
             string name = Describe(b.Device, b.Offset);
             if (b.Behavior == MapBehavior.Sticky) name = L.F("[粘] {0}", "[Sticky] {0}", name);
             else if (b.Behavior == MapBehavior.Repeat) name = L.F("[连] {0}", "[Repeat] {0}", name);
+            else if (b.Behavior == MapBehavior.StickyRapid) name = L.F("[粘连] {0}", "[Sticky+repeat] {0}", name);
             return string.Format("{0}  [device=0x{1:X2}, offset=0x{2:X2}]", name, b.WireDevice, b.Offset);
         }
 
         /// <summary>
-        /// 功能映射在界面上的颜色（普通映射返回 null = 用默认前景色）：
-        /// 粘滞键 = 绿，连发 = 红。
+        /// 功能映射在界面上的颜色：
+        /// 粘滞键 = 绿，连发 = 淡紫，粘滞+连发 = 中间色（青绿），普通映射 = 淡蓝。
         /// </summary>
         public static Color BehaviorColor(MapBehavior behavior)
         {
             switch (behavior)
             {
-                case MapBehavior.Sticky: return Color.FromArgb(0, 140, 70);    //绿
-                case MapBehavior.Repeat: return Color.FromArgb(115, 70, 170);  //淡紫
-                default: return Color.FromArgb(35, 95, 165);                   //普通：淡蓝
+                case MapBehavior.Sticky: return Color.FromArgb(0, 140, 70);       //绿
+                case MapBehavior.Repeat: return Color.FromArgb(115, 70, 170);     //淡紫
+                case MapBehavior.StickyRapid: return Color.FromArgb(0, 110, 110); //青绿（绿+紫的中间色）
+                default: return Color.FromArgb(35, 95, 165);                      //普通：淡蓝
             }
         }
 
@@ -938,9 +989,9 @@ namespace KeyboardOG
         public const int VariationMin = 0, VariationMax = 200;
 
         public bool Toggle = true;
-        public int Pulse = 15;
-        public int Interval = 100;
-        public int Variation = 10;
+        public int Pulse = 15;          //每次"按下"保持多久（ms）
+        public int Interval = 100;      //连发间隔（ms）
+        public int Variation = 10;      //步长：键盘上 0x2E / 0x2D 映射每按一次改多少毫秒
 
         public RapidParams Clone()
         {

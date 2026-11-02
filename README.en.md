@@ -6,11 +6,12 @@
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.6.1-512BD4?logo=dotnet&logoColor=white)](#requirements)
 [![C# WinForms](https://img.shields.io/badge/C%23-WinForms-239120?logo=csharp&logoColor=white)](#build-from-source)
 [![UI Language](https://img.shields.io/badge/UI-%E4%B8%AD%E6%96%87%20%7C%20English-2ea44f)](#chinese--english-ui)
-[![Version](https://img.shields.io/badge/version-1.02-blue)](#firmware-version-check)
+[![Version](https://img.shields.io/badge/version-1.11-blue)](#firmware-version-check)
 
 A Windows host application that talks to the keyboard firmware over a **USB HID command
-interface**. It edits key mappings, tunes hall-effect parameters, triggers calibration and
-shows the result of every command it sends.
+interface**. It edits key mappings (including sticky keys and auto repeat), tunes hall-effect
+parameters, configures the six-key keyboard's LEDs, triggers calibration and shows the result
+of every command it sends.
 
 No driver, no serial port, and it does not steal the keyboard's normal input:
 
@@ -24,7 +25,7 @@ version (`6kb`). Both share the same Report ID 4 command interface.
 
 ## Screenshots
 
-Main window (Chinese UI):
+Main window (Chinese UI, six-key keyboard example):
 
 ![Main window (zh)](docs/images/main-window-zh.png)
 
@@ -47,7 +48,8 @@ Settings dialog (language can be switched live):
   with a device-info query. Only devices that actually answer are shown, so touchpads that
   happen to expose a similar collection are filtered out.
 - **Automatic sync after connecting**: device info first (key count, hall sensor, encoder count),
-  then every mapping and every hall parameter — what you see is what the keyboard holds.
+  then every mapping, every hall parameter, and the repeat parameters (firmware 1.11+) — what
+  you see is what the keyboard holds.
 - **Disconnect on unplug**: the app listens for device-tree changes and pings the connection;
   two consecutive failures are required before it disconnects, so a temporarily busy firmware
   is not mistaken for an unplugged keyboard.
@@ -55,6 +57,8 @@ Settings dialog (language can be switched live):
 ### Key mappings
 
 - Four visual picker tabs: **Keyboard / Mouse / Gamepad / Consumer**, click a key/pad directly.
+- When the firmware uploads a layout, the left side shows the **real key layout** instead of
+  number buttons; click a keycap to select it. Large layouts open in a separate window.
 - Modifier keys (Ctrl / Shift / Alt / Win) are converted automatically into the modifier byte
   of the HID report.
 - Up to 12 mappings per key (matching the firmware's `MAXIMUM_BINDABLE_KEY`), with move up/down,
@@ -67,6 +71,16 @@ Settings dialog (language can be switched live):
   | Left-click an **existing** mapping | Removes that single entry ("click again to cancel") |
   | Left-click a **new** mapping | Replaces the currently selected row; appends when nothing is selected |
   | Right-click / Shift+Left-click a **new** mapping | Appends a row |
+
+### LED effects (six-key keyboard)
+
+- The **LED** tab offers 23 effects in three groups — **mono / rainbow / dual colour** — with IDs
+  matching `LED_EFFECT_*` in the firmware's `WS2812BManager.h`.
+- Adjust **brightness / speed / frame rate (10 steps) / primary and secondary colour**; changes
+  are sent immediately after a drag (`CMD_SET_LED` / `0x09` / `0x0B`), but only **Save LED**
+  (`CMD_SAVE_LED`, confirm byte `0x5A`) writes them to EEPROM.
+- The current settings are read on connect (`QUERY 0x03`, two reply frames), so the panel starts
+  from the keyboard's real state.
 
 ### Writing: as few commands as possible
 
@@ -86,6 +100,41 @@ Example: with 12 mappings on the keyboard and one changed in the middle, **1 com
 (the old implementation sent 12).
 
 After a successful write a `CMD_REFRESH` follows automatically, so **no replugging is needed**.
+
+### Key behaviours (normal / sticky / auto repeat)
+
+The always-visible **Key behaviour** column on the right decides **what kind of mapping the next
+picked key creates**:
+
+- Three choices: **Normal key / Sticky key / Auto repeat** — effective immediately (the old
+  "enable" checkbox is gone and the dropdown replaced it; in sticky mode there is a separate
+  **Repeat** checkbox that creates sticky+repeat mappings).
+- Below it are the mapping buttons for that behaviour, using the **same gestures as the pickers**:
+  **left click** replaces the mapping selected in the list (appends when nothing is selected),
+  **right click / Shift+left click** appends, **clicking the existing one removes it**.
+- **Sticky key**: the host injects a `0x1E` toggle switch for that key (one per key, slot 0,
+  hidden on the keycap); press once to latch, press again to release. The "Sticky switch" button
+  adds the `0x1F` master switch.
+- **Sticky + repeat**: in sticky mode, also tick **Repeat** and newly picked keys become
+  `STICKY_RAPID_TAB` (`0x3x`): once latched they stop holding a level and keep repeating at the
+  repeat interval. The `0x1E` switch is still injected, and it is still gated by the repeat master
+  switch (`0x2F`) and the repeat parameters. Those mappings are drawn in **teal** (green+purple mix)
+  on the keycap and in the list. **Requires firmware 1.12+**; the checkbox is disabled otherwise.
+- **Auto repeat**: the key fires immediately, then repeats every *interval* ms, each press held
+  for *pulse* ms. All three buttons are mappings: `0x2F` master switch, `0x2E` interval up,
+  `0x2D` interval down. The repeat switch can only be toggled by a keyboard mapping —
+  **the host never changes it**.
+- Interval up/down change the interval by *step* ms per press (clamped to 10..5000 in firmware,
+  runtime only, never saved to EEPROM). **Requires firmware 1.12+**; both buttons are disabled
+  on older firmware.
+
+Repeat parameter panel (requires firmware 1.11+):
+
+| Parameter | Range | Meaning |
+|---|---|---|
+| Interval | 10 ~ 5000 ms | Time between two repeats |
+| Pulse | 1 ~ 200 ms | How long each press is held (too short and the host misses it) |
+| Step | 0 ~ 200 ms | How much each interval +/− press changes the interval |
 
 ### Hall-effect parameters and calibration
 
@@ -120,11 +169,14 @@ After a successful write a `CMD_REFRESH` follows automatically, so **no repluggi
   second decimal (e.g. `0b01_011_001` = `0x59` → **1.31**, `0x41` → **1.01**).
 - The app keeps a "software version ↔ supported firmware range" table and evaluates it right
   after connecting:
-  - supported: `固件 1.04 / 软件 1.02` (firmware / software version);
+  - supported: `固件 1.12 / 软件 1.11` (firmware / software version);
   - firmware too old: red `固件版本过老，请更新固件`;
   - firmware too new: red `固件版本过新，请更新软件`;
   - plus `版本不匹配可能导致意料之外的问题`.
-- Software `1.02` currently supports firmware **1.00 – 1.57** (see `Protocol/VersionInfo.cs`).
+- Software `1.11` currently supports firmware **1.10 – 1.57** (see `Protocol/VersionInfo.cs`).
+  Individual features are gated separately: sticky keys / auto repeat need **1.10+**, repeat
+  parameters need **1.11+**, and the interval +/- mappings plus sticky+repeat need **1.12+**.
+  Controls are disabled with a hint when the firmware is older than required.
 
 ### Other details
 
@@ -143,7 +195,8 @@ After a successful write a `CMD_REFRESH` follows automatically, so **no repluggi
 
 1. Click **Refresh** and pick your keyboard in the **Device** combo box (only devices that
    answered the device-info probe are listed).
-2. Click **Connect**. Device info, all mappings and all hall parameters are read automatically.
+2. Click **Connect**. Device info, all mappings, hall parameters, LED settings and repeat
+   parameters (when the firmware supports them) are read automatically.
 3. If the status bar says no device info was received, the firmware is old or not a matching
    build — see the [FAQ](#faq).
 
@@ -151,14 +204,19 @@ After a successful write a `CMD_REFRESH` follows automatically, so **no repluggi
 
 1. Select a key number on the left (for example `0`).
 2. In the picker tabs on the right, click the key you want: **left-click replaces / right-click appends**;
-   clicking an existing mapping again removes it.
+   clicking an existing mapping again removes it. To create a **sticky key / auto-repeat** mapping,
+   first choose the behaviour in the **Key behaviour** dropdown (tick **Repeat** in sticky mode for
+   sticky+repeat), then click the picker; sticky keys get the `0x1E` toggle injected automatically.
 3. Click **"Write this key"** on the far right. Only this key is touched.
 
-### 3. Tune hall parameters
+### 3. Tune hall parameters / LEDs
 
 1. Choose the target keys in the scope selector (left-click single, right-click multi, or select all).
 2. Drag a slider or type a value (values are per-mille of full travel, `40` = 4.0%).
 3. Click **Send all four**. A key turns green only when all four parameters were acknowledged.
+
+For the six-key keyboard, switch to the **LED** tab: choose a group and effect, drag brightness /
+speed / frame rate, pick both colours — changes apply immediately; press **Save LED** to persist.
 
 ---
 
@@ -222,6 +280,8 @@ KeyboardOG/
 ├─ GamepadControl.cs              gamepad picker
 ├─ ConsumerControl.cs             media/consumer picker
 ├─ HallParamControl.cs            hall parameters + calibration
+├─ LedPanel.cs                    LED panel (group / effect / brightness / speed / fps / colours)
+├─ LayoutPanel.cs / KeyLayoutForm.cs  firmware layout drawing and separate window
 ├─ LogForm.cs / CommandLogView.cs command log window and view
 ├─ PickerSupport.cs               shared picker interface, events, palette and drawing helpers
 ├─ SettingsForm.cs                settings dialog (including language)
@@ -232,6 +292,7 @@ KeyboardOG/
 │  ├─ ProtocolDefs.cs             protocol constants, 8-byte command builder, name tables
 │  ├─ KeyMapModel.cs              mapping list model
 │  ├─ MappingWriter.cs            minimal-write planner (APPEND / OVERRIDE / CLEAR)
+│  ├─ KeyLayout.cs                layout parser (0xFE frames -> key positions)
 │  ├─ VersionInfo.cs              firmware/software versions and compatibility table
 │  ├─ CommandLog.cs               log entries and store
 │  └─ AppSettings.cs              settings persistence (ini)
@@ -321,7 +382,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\Check-Localization.ps1
 | Project | Description |
 |---|---|
 | `rtkb-layout-edited` | Hall-effect keyboard firmware (mapping, hall parameters, calibration, EC11 encoder) |
-| `6kb` | Six-key low-profile keyboard firmware |
+| `6kb` | Six-key low-profile keyboard firmware (LED effects / sticky keys / auto repeat) |
 | `KeyboardOG.Native` | Native HID library (enumerate, select, send/read reports) |
 
 ---
